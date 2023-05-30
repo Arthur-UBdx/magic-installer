@@ -1,21 +1,15 @@
 use magic_installer::*;
 
-const MINECRAFT_FOLDER: &str = "%appdata%\\.minecraft\\";
-
 fn main() -> crossterm::Result<()> {
     let config_str = include_str!("..\\src\\config.txt");
     let config = Config::from(config_str);
 
-    let minecraft_folder = get_env_path(MINECRAFT_FOLDER);
-    let magic_installer_folder = minecraft_folder + "magic_installer\\";
+    create_folder(&config.magic_installer_folder);
 
-    create_folder(&magic_installer_folder);
-    let files_path = format!("{}{}", magic_installer_folder, "files.zip");
-
-    let display = Display::open()?;
-    display.download_page(&files_path, &config.modpack_url)?;
-    std::thread::sleep(std::time::Duration::from_secs(5));
-    // display.main_menu()?;
+    let mut display = Display::open(config)?;
+    loop {
+        if let AppStatus::Exit = display.main_menu()? {break;}
+    }
     display.close()?;
     Ok(())
 }

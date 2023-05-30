@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{mpsc, Arc};
 
 use std::path::Path;
-use std::fs::{create_dir_all, File};
+use std::fs::{create_dir_all, remove_dir_all, File};
 use std::net::TcpStream;
 use zip::{ZipArchive, result::ZipResult};
 
@@ -10,7 +10,10 @@ use std::io;
 use std::io::{Write, Read};
 
 use std::thread;
+use std::thread::sleep;
 use std::time::Duration;
+
+use std::process::Command;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
@@ -18,12 +21,16 @@ use crossterm::{
     execute, terminal, queue, cursor,
 };
 
+const MINECRAFT_FOLDER: &str = "%appdata%\\.minecraft\\";
+
 // ---- Config ---- //
 
 #[derive(Debug)]
 pub struct Config {
     pub modpack_url: String,
     pub modloader_url: String,
+    pub minecraft_folder: String,
+    pub magic_installer_folder: String,
 }
 
 impl Config {
@@ -32,6 +39,8 @@ impl Config {
         Config {
             modpack_url: config.get("modpack_url").unwrap().to_string(),
             modloader_url: config.get("modloader_url").unwrap().to_string(),
+            minecraft_folder: get_env_path(MINECRAFT_FOLDER),
+            magic_installer_folder: format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\"),
         }
     }
 
@@ -117,6 +126,14 @@ pub fn unzip_file(filepath: &str, folderpath: &str) -> ZipResult<()> {
     Ok(())
 }
 
+pub fn launch_executable(filepath: &str) {
+    Command::new(filepath);
+}
+
+pub fn remove_mods(filepath: &str) -> io::Result<()> {
+    remove_dir_all(filepath)?;
+    Ok(())
+}
 
 pub fn get_env_path(path: &str) -> String {
     if path.starts_with('%') {
@@ -133,17 +150,24 @@ pub fn get_env_path(path: &str) -> String {
 
 // ---- UI ---- //
 
+pub enum AppStatus {
+    Loop,
+    Exit,
+}
+
 pub struct Display {
     terminal_width: usize,
     terminal_height: usize,
+    config: Config,
 }
 
 impl Display {
-    pub fn open() -> crossterm::Result<Display>{
+    pub fn open(config: Config) -> crossterm::Result<Display>{
         execute!(io::stdout(), terminal::EnterAlternateScreen, cursor::Hide)?;
         Ok(Display {
             terminal_width: terminal::size()?.0 as usize,
             terminal_height: terminal::size()?.1 as usize,
+            config
         })
     }
 
@@ -165,7 +189,7 @@ impl Display {
     }
 
     // MAIN MENU
-    pub fn main_menu(&mut self) -> crossterm::Result<()> {
+    pub fn main_menu(&mut self) -> crossterm::Result<AppStatus> {
         let options: [&str; 4] = ["Install modpack", "Install fabric loader", "Remove modpack", "Exit (esc)"];
         let options_len = options.len();
 
@@ -204,22 +228,33 @@ impl Display {
         }
 
         match key_pressed {
-            KeyCode::Esc => {return Ok(())}
+            KeyCode::Esc => {return Ok(AppStatus::Exit)}
             _ => {match selected {
-                0 => {println!("Install modpack")}
-                1 => {println!("Install fabric loader")}
-                2 => {println!("Remove modpack")}
-                3 => {return Ok(())}
+                0 => {
+                    let filepath = format!("{}{}", &self.config.magic_installer_folder, "modpack.zip");
+                    self.download_page(&filepath, &self.config.modpack_url)?;
+                    self.unzip_page(&filepath, &self.config.minecraft_folder)?;
+                }
+                1 => {
+                    let filepath = format!("{}{}", &self.config.magic_installer_folder, "fabric-loader.exe");
+                    self.download_page(&filepath, &self.config.modloader_url)?;
+                    self.executable_page(&filepath)?;
+                }
+                2 => {
+                    let folders = ["mods", "config"];
+                    self.remove_files_page(&self.config.minecraft_folder, &folders)?;
+                }
+                3 => {return Ok(AppStatus::Exit)}
                 _ => {}
             }},
         };
-        Ok(())
+        Ok(AppStatus::Loop)
     }
 
     fn draw_main_menu(&self, selected: usize, options: &[&str]) -> crossterm::Result<()>{
         let title = include_str!("../src/title.txt");
         let author = "RICHELET Arthur - 2023";
-        let subtitle = "Il faut relancer le programme avec Ctrl+C si les touches ne répondent plus.";
+        let subtitle = "Si les touches ne répondent plus, il faut soit relancer le programme avec Ctrl+C";
 
         let first_line = 100; //title.lines().next().unwrap(); // 100 is the length of the first line of the title
         let padding = self.terminal_width.saturating_sub(first_line) / 2; 
@@ -273,6 +308,9 @@ impl Display {
         execute!(stdout, cursor::MoveTo(0, height))?;
         self.write_centered("Préparation du téléchargement")?; //lang
 
+        execute!(stdout, cursor::MoveTo(0, height*2u16))?;
+        self.write_stylized_centered("Si le télécharchement semble rester à 0%, Ctrl+C peut débloquer le programme".with(Color::DarkGrey))?; //lang
+
         let (tx, rx) = mpsc::channel();
 
         let handle = thread::spawn(move || {
@@ -298,6 +336,7 @@ impl Display {
             cursor::MoveTo(0, height - 2))?;
 
         self.write_centered("Téléchargement fini !")?; //lang
+        sleep(Duration::from_secs(1));
         Ok(())
     }
 
@@ -316,19 +355,63 @@ impl Display {
         bar
     }
 
-    // pub fn install_page(path) -> crossterm::Result<()> {
-    //     execute!(stdout,
-    //         terminal::Clear(terminal::ClearType::All),
-    //         cursor::MoveTo(0, height - 2));
+    pub fn unzip_page(&self, filepath: &str, folderpath: &str) -> crossterm::Result<()> {
+        let height = self.terminal_height as u16 / 2u16;
+        let mut stdout = io::stdout();
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
 
-    //     self.write_centered("Installation en cours...")?; //lang
+        self.write_centered("Installation en cours...")?; //lang
+        unzip_file(filepath, folderpath).unwrap();
         
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
+
+        self.write_centered("Installation terminée...")?; //lang
+        sleep(Duration::from_secs(1));
+        Ok(())
+    }
+
+    pub fn executable_page(&self, filepath: &str) -> crossterm::Result<()> {
+        let height = self.terminal_height as u16 / 2u16;
+        let mut stdout = io::stdout();
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
+
+        self.write_centered("Lancement de l'installateur Fabric")?; //lang
+        launch_executable(filepath);
         
-    //     Ok(())
-    // }
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
 
+        self.write_centered("Lancement terminé...")?; //lang
+        sleep(Duration::from_secs(1));
+        Ok(())
+    }
 
+    pub fn remove_files_page(&self, base_folderpath: &str, folders: &[&str]) -> crossterm::Result<()> {
+        let height = self.terminal_height as u16 / 2u16;
+        let mut stdout = io::stdout();
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
 
-    
+        self.write_centered("Suppression des fichiers en cours...")?; //lang*
+        folders.iter().for_each(|folder| {
+            let folderpath = format!("{}{}", base_folderpath, folder);
+            remove_mods(&folderpath).unwrap();
+        });
+        
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
 
+        self.write_centered("Suppression terminée...")?; //lang
+        sleep(Duration::from_secs(1));
+        Ok(())
+    }
 }
