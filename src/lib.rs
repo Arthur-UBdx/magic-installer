@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use std::path::Path;
 use std::fs::{create_dir_all, File};
 use std::net::TcpStream;
+use zip::{ZipArchive, result::ZipResult};
 
 use std::io;
 use std::io::{Write, Read};
@@ -13,7 +14,7 @@ use std::time::Duration;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
-    style::{self, Attribute, Print, Color, Stylize, PrintStyledContent, StyledContent},
+    style::{Attribute, Print, Color, Stylize, PrintStyledContent, StyledContent},
     execute, terminal, queue, cursor,
 };
 
@@ -26,7 +27,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_str(config: &str) -> Config {
+    pub fn from(config: &str) -> Config {
         let config = Config::parse_hashmap(config, "\n", "=");
         Config {
             modpack_url: config.get("modpack_url").unwrap().to_string(),
@@ -65,16 +66,20 @@ pub fn create_folder(path: &str) -> FileStatus{
     FileStatus::FileExists
 }
 
-pub fn download_file(path: &str, mut url: &str, tx: ) -> io::Result<()> {
+pub enum DownloadStatus{
+    Downloading (f32),
+    Downloaded,
+} 
+
+pub fn download_file(path: &str, mut url: &str, tx: mpsc::Sender<DownloadStatus>) -> io::Result<()> {
     (_, url) = url.split_once("//").unwrap();
-    let (host, urlpath) = match url.split_once("/") {
+    let (host, urlpath) = match url.split_once('/') {
         Some((host, urlpath)) => (host, urlpath),
         None => panic!("Invalid url"),
     };
 
     let mut stream = TcpStream::connect(host)?;
     let request = format!("GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n",urlpath, host);
-    println!("{}", request);
     stream.write_all(request.as_bytes())?;
 
     let mut buffer = vec![0; 4096];
@@ -96,24 +101,32 @@ pub fn download_file(path: &str, mut url: &str, tx: ) -> io::Result<()> {
     loop {
         let bytes_read = stream.read(&mut buffer)?;
         file.write_all(&buffer[..bytes_read])?;
-        println!("{} / {}", file.metadata().unwrap().len(), length);
+        tx.send(DownloadStatus::Downloading (file.metadata().unwrap().len() as f32 / length as f32)).unwrap();
         if bytes_read == 0 {
             break;
         }
     }
+    tx.send(DownloadStatus::Downloaded).unwrap();
+    Ok(())
+}
+
+pub fn unzip_file(filepath: &str, folderpath: &str) -> ZipResult<()> {
+    let file = File::open(filepath).unwrap();
+    let mut archive = ZipArchive::new(file)?;
+    archive.extract(folderpath)?;
     Ok(())
 }
 
 
 pub fn get_env_path(path: &str) -> String {
-    if path.starts_with("%") {
-        let path_splitted: Vec<&str> = path.split("%").collect();
-        let var: &str = &format!("{}", &path_splitted[1].to_uppercase());
+    if path.starts_with('%') {
+        let path_splitted: Vec<&str> = path.split('%').collect();
+        let var: &str = &path_splitted[1].to_uppercase();
         let path = match std::env::var(var) {
             Ok(path) => path,
             Err(_) => panic!("Environnement variable '{}' not found", var),
         };
-        return path.to_string() + &path_splitted[2].to_string();
+        return path + path_splitted[2];
     }
     path.to_string()
 }
@@ -140,13 +153,13 @@ impl Display {
     }
 
     fn write_centered(&self, text: &str) -> crossterm::Result<()>{
-        let padding: usize = self.terminal_width.checked_sub(text.len()).unwrap_or(0) / 2;
+        let padding: usize = self.terminal_width.saturating_sub(text.len()) / 2;
         execute!(io::stdout(), Print(" ".repeat(padding)), Print(text))?;
         Ok(())
     }
 
     fn write_stylized_centered(&self, stylized_text: StyledContent<&str>) -> crossterm::Result<()> {
-        let padding: usize = self.terminal_width.checked_sub(stylized_text.content().len()).unwrap_or(0) / 2;
+        let padding: usize = self.terminal_width.saturating_sub(stylized_text.content().len()) / 2;
         execute!(io::stdout(), Print(" ".repeat(padding)), PrintStyledContent(stylized_text))?;
         Ok(())
     }
@@ -165,23 +178,20 @@ impl Display {
         // Event loop
         loop {
             if let Event::Key(KeyEvent {code, kind, ..}) = event::read().unwrap() {
-                match kind {
-                    KeyEventKind::Press => {
-                        match code {
-                            KeyCode::Up => {
-                                selected = (selected-1)%options_len;
-                                self.draw_main_options(selected, &options)?;
-                            }
-                            KeyCode::Down => {
-                                selected = (selected+1)%options_len;
-                                self.draw_main_options(selected, &options)?;
-                            }
-                            KeyCode::Enter => {key_pressed = KeyCode::Enter; break}
-                            KeyCode::Esc => {key_pressed = KeyCode::Esc; break}
-                            _ => {}
+                if kind == KeyEventKind::Press {
+                    match code {
+                        KeyCode::Up => {
+                            selected = (selected-1)%options_len;
+                            self.draw_main_options(selected, &options)?;
                         }
+                        KeyCode::Down => {
+                            selected = (selected+1)%options_len;
+                            self.draw_main_options(selected, &options)?;
+                        }
+                        KeyCode::Enter => {key_pressed = KeyCode::Enter; break}
+                        KeyCode::Esc => {key_pressed = KeyCode::Esc; break}
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             if let Event::Resize(width, height) = event::read().unwrap() {
@@ -212,7 +222,7 @@ impl Display {
         let subtitle = "Il faut relancer le programme avec Ctrl+C si les touches ne répondent plus.";
 
         let first_line = 100; //title.lines().next().unwrap(); // 100 is the length of the first line of the title
-        let padding = self.terminal_width.checked_sub(first_line).unwrap_or(0) / 2; 
+        let padding = self.terminal_width.saturating_sub(first_line) / 2; 
         let mut stdout = io::stdout();
 
         execute!(stdout, terminal::Clear(terminal::ClearType::All), cursor::Hide)?;
@@ -242,13 +252,80 @@ impl Display {
             } else {
                 self.write_centered(option).unwrap();
             }
-
         });
         stdout.flush()?;
         Ok(())
     }
 
+
     // Téléchargement et Installation
+    pub fn download_page(&self, path: &str, url: &str) -> crossterm::Result<()> {
+        let path = Arc::new(path.to_owned());
+        let url = Arc::new(url.to_owned());
+
+        let mut stdout = io::stdout();
+        let height: u16 = (self.terminal_height as f32 / 2.0) as u16;
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
+
+        self.write_centered("Téléchargement en cours...")?; //lang
+        execute!(stdout, cursor::MoveTo(0, height))?;
+        self.write_centered("Préparation du téléchargement")?; //lang
+
+        let (tx, rx) = mpsc::channel();
+
+        let handle = thread::spawn(move || {
+            download_file(&path, &url, tx).expect("Couldn't download file");
+        });
+
+        loop {
+            match rx.try_recv() {
+                Ok(DownloadStatus::Downloading(percentage)) => {
+                    execute!(stdout, cursor::MoveTo(0, height))?;
+                    self.write_centered(&format!("{} {}%", Display::download_bar(percentage), (percentage*100.0) as u32))?;
+                },
+                Ok(DownloadStatus::Downloaded) => {
+                    break;
+                },
+                Err(_) => {}
+            }
+        }
+        handle.join().unwrap();
+
+        execute!(stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2))?;
+
+        self.write_centered("Téléchargement fini !")?; //lang
+        Ok(())
+    }
+
+    fn download_bar(percentage: f32) -> String {
+        let bar_length = 50;
+        let mut bar = String::new();
+        bar.push('[');
+        for i in 0..bar_length {
+            if (i as f32 / bar_length as f32) < percentage {
+                bar.push('=');
+            } else {
+                bar.push(' ');
+            }
+        }
+        bar.push(']');
+        bar
+    }
+
+    // pub fn install_page(path) -> crossterm::Result<()> {
+    //     execute!(stdout,
+    //         terminal::Clear(terminal::ClearType::All),
+    //         cursor::MoveTo(0, height - 2));
+
+    //     self.write_centered("Installation en cours...")?; //lang
+        
+        
+    //     Ok(())
+    // }
 
 
 
