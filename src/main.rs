@@ -9,6 +9,7 @@ fn main() -> crossterm::Result<()> {
     let mut display = Display::open(config)?;
     loop {
         if let AppStatus::Exit = display.main_menu()? {break;}
+        crossterm::event::read().unwrap();
     }
     display.close()?;
     Ok(())

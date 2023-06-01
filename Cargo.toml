@@ -1,8 +1,11 @@
 [package]
 name = "magic-installer"
-version = "0.1.0"
+version = "2.0.1"
 edition = "2021"
 
 [dependencies]
 crossterm = "0.26.1"
 zip = "0.6.6"
+
+[build-dependencies]
+winres = "0.1.12"
