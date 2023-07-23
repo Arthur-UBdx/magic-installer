@@ -1,19 +1,12 @@
-use std::collections::HashMap;
-use std::sync::{mpsc, Arc};
-
-use std::path::Path;
-use std::fs::{create_dir_all, remove_dir_all, File};
-use std::net::TcpStream;
-use zip::{ZipArchive, result::ZipResult};
-
-use std::io;
-use std::io::{Write, Read};
+use crate::files::{launch_executable, download_file, unzip_file, DownloadStatus};
+use crate::config::{VERSION, MAIN_TITLE, AUTHOR, BOTTOM_TEXT, MAIN_MENU_OPTIONS, FILES_TO_REMOVE, Config};
 
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
-
-use std::process::Command;
+use std::fs::remove_dir_all;
+use std::sync::Arc;
+use std::io::{Write, self};
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent},
@@ -21,138 +14,7 @@ use crossterm::{
     execute, terminal, queue, cursor,
 };
 
-const VERSION: &str = "v2.0.1";
-const MAIN_TITLE: &str = include_str!("../src/title.txt");
-const AUTHOR: &str = "RICHELET Arthur - 2023";
-const BOTTOM_TEXT: &str = "Un installateur pour les gouverner tous";
-
-const MINECRAFT_FOLDER: &str = "%appdata%\\.minecraft\\";
-const MAIN_MENU_OPTIONS: &[&str] = &["Installer le modpack", "Installer fabric", "Supprimer les fichiers du modpack", "Quitter (esc)"];
-const FILES_TO_REMOVE: &[&str] = &["mods", "config"];
-
-// ---- Config ---- //
-
-#[derive(Debug)]
-pub struct Config {
-    pub modpack_url: String,
-    pub modloader_url: String,
-    pub minecraft_folder: String,
-    pub magic_installer_folder: String,
-}
-
-impl Config {
-    pub fn from(config: &str) -> Config {
-        let config = Config::parse_hashmap(config, "\n", "=");
-        Config {
-            modpack_url: config.get("modpack_url").unwrap().to_string(),
-            modloader_url: config.get("modloader_url").unwrap().to_string(),
-            minecraft_folder: get_env_path(MINECRAFT_FOLDER),
-            magic_installer_folder: format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\"),
-        }
-    }
-
-    fn parse_hashmap(target: &str, entries_separator: &str, key_value_separator: &str) -> HashMap<String, String> {
-        let mut result: HashMap<String, String> = HashMap::new();
-        let entries = target.split(entries_separator);
-        entries.for_each(|e| {
-            if let Some((k,v)) = e.split_once(key_value_separator) {
-                result.insert(
-                    k.trim().to_string(),
-                    v.trim().to_string()
-                );
-            }
-        });
-        result
-    }
-}
-
-// ---- File handling ---- //
-pub enum FileStatus {
-    FileExists,
-    FileDoesntExist,
-    FileError,
-}
-
-//create a function to create a folder if it doesn't exist
-pub fn create_folder(path: &str) -> FileStatus{
-    if !Path::new(path).exists() {
-        create_dir_all(path).expect("Couldn't create folder");
-        return FileStatus::FileDoesntExist;
-    }
-    FileStatus::FileExists
-}
-
-pub enum DownloadStatus{
-    Downloading (f32),
-    Downloaded,
-} 
-
-pub fn download_file(path: &str, mut url: &str, tx: mpsc::Sender<DownloadStatus>) -> io::Result<()> {
-    (_, url) = url.split_once("//").unwrap();
-    let (host, urlpath) = match url.split_once('/') {
-        Some((host, urlpath)) => (host, urlpath),
-        None => panic!("Invalid url"),
-    };
-
-    let mut stream = TcpStream::connect(host)?;
-    let request = format!("GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n",urlpath, host);
-    stream.write_all(request.as_bytes())?;
-
-    let mut buffer = vec![0; 4096];
-    let mut file = File::create(path)?;
-    
-    let bytes_read = stream.read(&mut buffer)?;
-    file.write_all(&buffer[..bytes_read])?;
-
-    let response_str = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let mut length: usize = 0;
-    let (headers, _) = response_str.split_once("\r\n\r\n").unwrap();
-    headers.lines()
-        .filter(|l| l.starts_with("Content-Length: "))
-        .for_each(|line| {
-            let (_, length_str) = line.split_once(": ").unwrap();
-            length = length_str.parse::<usize>().unwrap();
-        });
-
-    loop {
-        let bytes_read = stream.read(&mut buffer)?;
-        file.write_all(&buffer[..bytes_read])?;
-        tx.send(DownloadStatus::Downloading (file.metadata().unwrap().len() as f32 / length as f32)).unwrap();
-        if bytes_read == 0 {
-            break;
-        }
-    }
-    tx.send(DownloadStatus::Downloaded).unwrap();
-    Ok(())
-}
-
-pub fn unzip_file(filepath: &str, folderpath: &str) -> ZipResult<()> {
-    let file = File::open(filepath).unwrap();
-    let mut archive = ZipArchive::new(file)?;
-    archive.extract(folderpath)?;
-    Ok(())
-}
-
-pub fn launch_executable(filepath: &str) {
-    Command::new(filepath)
-        .spawn()
-        .expect("Failed to execute process");
-}
-
-pub fn get_env_path(path: &str) -> String {
-    if path.starts_with('%') {
-        let path_splitted: Vec<&str> = path.split('%').collect();
-        let var: &str = &path_splitted[1].to_uppercase();
-        let path = match std::env::var(var) {
-            Ok(path) => path,
-            Err(_) => panic!("Environnement variable '{}' not found", var),
-        };
-        return path + path_splitted[2];
-    }
-    path.to_string()
-}
-
-// ---- UI ---- //
+use std::sync::mpsc;
 
 pub enum AppStatus {
     Loop,

@@ -9,5 +9,7 @@ This is a simple script that will install all the mods you need to play on a pri
 The config file is a simple text file that contains the following:
 
 ```txt
+modpack_url=[your modpack url]
+modloader_url=[the fabric mod loader url]
 
 ```

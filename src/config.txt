@@ -1,2 +1,0 @@
-modpack_url=http://51.83.74.243:80/ressource?file=minecraft.zip
-modloader_url=http://51.83.74.243:80/ressource?file=fabric-installer.zip
