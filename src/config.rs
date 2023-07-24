@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::fs::File;
+
 use std::io::Write;
 
-pub const VERSION: &str = "v2.0.1";
+pub const VERSION: &str = "v2.1.0";
 pub const MAIN_TITLE: &str = include_str!("../title.txt");
 pub const AUTHOR: &str = "RICHELET Arthur - 2023";
+pub const CONTROLS: &str = "↑ ↓ pour naviguer, Entrée pour valider, Esc pour quitter";
 pub const BOTTOM_TEXT: &str = "Un installateur pour les gouverner tous";
 
 pub const MINECRAFT_FOLDER: &str = "%appdata%\\.minecraft\\";
@@ -17,34 +19,27 @@ pub const FILES_TO_REMOVE: &[&str] = &["mods", "config"];
 pub struct Config {
     pub modpack_url: String,
     pub modloader_url: String,
+    pub modloader_execname: String,
     pub minecraft_folder: String,
     pub magic_installer_folder: String,
+    pub debugfile: File,
+    pub debug: bool,
 }
 
 impl Config {
-    pub fn from(config: &str) -> Config {
+    pub fn from(config: &str, debug: bool) -> Config {
         let config = Config::parse_hashmap(config, "\n", "=");
 
         Config {
             modpack_url: config.get("modpack_url").unwrap().to_string(),
             modloader_url: config.get("modloader_url").unwrap().to_string(),
+            modloader_execname: config.get("modloader_execname").unwrap().to_string(),
             minecraft_folder: get_env_path(MINECRAFT_FOLDER),
             magic_installer_folder: format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\"),
+            debugfile: File::create(format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\debug.txt")).unwrap(),
+            debug: debug,
         }
-    }
 
-    pub fn debug_from(config: &str, log_file: &mut File) -> Config {
-        let config = Config::parse_hashmap(config, "\n", "=");
-
-        writeln!(log_file, "modpack_url: {}", config.get("modpack_url").unwrap()).unwrap();
-        writeln!(log_file, "modloader_url: {}", config.get("modloader_url").unwrap()).unwrap();
-
-        Config {
-            modpack_url: config.get("modpack_url").unwrap().to_string(),
-            modloader_url: config.get("modloader_url").unwrap().to_string(),
-            minecraft_folder: get_env_path(MINECRAFT_FOLDER),
-            magic_installer_folder: format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\"),
-        }
     }
 
     fn parse_hashmap(target: &str, entries_separator: &str, key_value_separator: &str) -> HashMap<String, String> {
@@ -59,6 +54,11 @@ impl Config {
             }
         });
         result
+    }
+
+    pub fn log(&mut self, message: &str) {
+        let file = &mut self.debugfile;
+        writeln!(file, "{}", message).unwrap();
     }
 }
 

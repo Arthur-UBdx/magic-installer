@@ -1,41 +1,27 @@
-use zip::{ZipArchive, result::ZipResult};
-
 use std::process::Command;
 use std::path::Path;
 use std::fs::{File, create_dir_all};
 use std::io::{Write, Read, self};
-use std::net::TcpStream;
 use std::sync::mpsc;
-use std::borrow::Cow;
+use ureq;
 
-
-pub fn download_file(path: &str, mut url: &str, tx: mpsc::Sender<DownloadStatus>) -> io::Result<()> {
-    (_, url) = url.split_once("//").unwrap();
-    let (host, urlpath) = match url.split_once('/') {
-        Some((host, urlpath)) => (host, urlpath),
-        None => panic!("Invalid url"),
-    };
-
-    let mut stream: TcpStream = TcpStream::connect(host)?;
-    let request: String = format!("GET /{} HTTP/1.1\r\nHost: {}\r\n\r\n",urlpath, host);
-    stream.write_all(request.as_bytes())?;
-
+/// Downloads a file, saves it to the specified path and sends the download status through a channel.
+/// the `DownloadStatus::Downloading(f32)` is a float between 0 and 1, representing the percentage of the file downloaded.
+/// send `DownloadStatus::Downloaded` when the download is finished.
+pub fn download_file(path: &str, url: &str, tx: mpsc::Sender<DownloadStatus>) -> io::Result<()> {
     let mut buffer: Vec<u8> = vec![0; 4096];
     let mut file: File = File::create(path)?;
     
-    let bytes_read: usize = stream.read(&mut buffer)?;
-    file.write_all(&buffer[..bytes_read])?;
-
-    let response_str: Cow<'_, str> = String::from_utf8_lossy(&buffer[..bytes_read]);
-    let mut length: usize = 0;
-    let (headers, _) = response_str.split_once("\r\n\r\n").unwrap();
-    headers.lines()
-        .filter(|l| l.starts_with("Content-Length: "))
-        .for_each(|line| {
-            let (_, length_str) = line.split_once(": ").unwrap();
-            length = length_str.parse::<usize>().unwrap();
-        });
-
+    let response = match ureq::get(url).call() {
+        Ok(response) => response,
+        Err(err) => {
+            tx.send(DownloadStatus::Error(err)).unwrap();
+            return Ok(());
+        } 
+    };
+    let length = response.header("Content-Length").unwrap().parse::<f32>().unwrap();
+    let mut stream = response.into_reader();
+    
     loop {
         let bytes_read: usize = stream.read(&mut buffer)?;
         file.write_all(&buffer[..bytes_read])?;
@@ -48,15 +34,20 @@ pub fn download_file(path: &str, mut url: &str, tx: mpsc::Sender<DownloadStatus>
     Ok(())
 }
 
+pub enum DownloadStatus{
+    Error (ureq::Error),
+    Downloading (f32),
+    Downloaded,
+} 
 
-// ---- File handling ---- //
+#[allow(dead_code)]
 pub enum FileStatus {
     FileExists,
     FileDoesntExist,
-    //FileError,
+    FileError,
 }
 
-//create a function to create a folder if it doesn't exist
+/// Check if a file exists, if not, create it in the path specified.
 pub fn create_folder(path: &str) -> FileStatus{
     if !Path::new(path).exists() {
         create_dir_all(path).expect("Couldn't create folder");
@@ -65,18 +56,27 @@ pub fn create_folder(path: &str) -> FileStatus{
     FileStatus::FileExists
 }
 
-pub enum DownloadStatus{
-    Downloading (f32),
-    Downloaded,
-} 
+/// Unzip a file to a folder
+/// extracts the `filename` in the `folderpath`
+pub fn unzip_file(filename: &str, folderpath: &str) -> Result<(), io::Error> {
+    let mut cmd = Command::new("tar");
+    cmd.current_dir(&Path::new(folderpath));
+    cmd.arg("-xf").arg(filename);
 
-pub fn unzip_file(filepath: &str, folderpath: &str) -> ZipResult<()> {
-    let file = File::open(filepath).unwrap();
-    let mut archive = ZipArchive::new(file)?;
-    archive.extract(folderpath)?;
-    Ok(())
+    match cmd.spawn() {
+        Ok(mut child) => {
+            let status = child.wait().expect("Failed to wait for the commands");
+            if status.success() {
+                Ok(())
+            } else {
+                Err(io::Error::new(io::ErrorKind::Other, "Failed to unzip file"))
+            }
+        }
+        Err(err) => Err(err),
+    }
 }
 
+/// Launch an executable in a new process, used for launching the fabric/forge installer.
 pub fn launch_executable(filepath: &str) {
     Command::new(filepath)
         .spawn()

@@ -1,10 +1,10 @@
 use crate::files::{launch_executable, download_file, unzip_file, DownloadStatus};
-use crate::config::{VERSION, MAIN_TITLE, AUTHOR, BOTTOM_TEXT, MAIN_MENU_OPTIONS, FILES_TO_REMOVE, Config};
+use crate::config::{VERSION, MAIN_TITLE, AUTHOR, CONTROLS, BOTTOM_TEXT, MAIN_MENU_OPTIONS, FILES_TO_REMOVE, Config};
 
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
-use std::fs::remove_dir_all;
+use std::fs::{File, remove_dir_all};
 use std::sync::Arc;
 use std::io::{Write, self};
 
@@ -19,6 +19,22 @@ use std::sync::mpsc;
 pub enum AppStatus {
     Loop,
     Exit,
+}
+
+trait UnwrapOrLog<T, E> {
+    fn unwrap_or_log(self, log_file: &mut File) -> T;
+}
+
+impl<T, E: std::fmt::Display + std::fmt::Debug> UnwrapOrLog<T, E> for Result<T, E> {
+    fn unwrap_or_log(self, log_file: &mut File) -> T {
+        match self {
+            Ok(value) => value,
+            Err(error) => {
+                writeln!(log_file, "Error: {}", error).unwrap();
+                panic!("Error: {:?}", error);
+            }
+        }
+    }
 }
 
 pub struct Display {
@@ -95,24 +111,35 @@ impl Display {
         match key_pressed {
             KeyCode::Esc => {return Ok(AppStatus::Exit)}
             _ => {match selected {
-                0 => {
-                    let filepath = format!("{}{}", &self.config.magic_installer_folder, "modpack.zip");
+                0 => { // install the modpack
+                    let filename: &str = "modpack.zip";
+                    let filepath: String = format!("{}{}", &self.config.minecraft_folder, filename);
+                    let folders: &[&str] = FILES_TO_REMOVE;
+
+                    self.config.log(format!("modpack zip file path: {}", &filepath).as_str());
+                    self.config.log(format!("files to remove path: {:?}", &folders).as_str());
+                    
+                    self.remove_files_page(&self.config.minecraft_folder, folders)?;
+                    self.download_page(&filepath, &self.config.modpack_url).unwrap_or_log(&mut self.config.debugfile);
+                    self.unzip_page(&filename, &self.config.minecraft_folder).unwrap_or_log(&mut self.config.debugfile);
+                }
+                1 => { // install the modloader (fabric/forge)
+                    let filename: &str = "modloader.zip";
+                    let filepath: String = format!("{}{}", &self.config.magic_installer_folder, filename);
+                    let executable_path: String = format!("{}{}", &self.config.magic_installer_folder, self.config.modloader_execname);
+                    
+                    self.config.log(format!("modloader zip path: {}", &filepath).as_str());
+                    self.config.log(format!("modloader exec path: {}", &executable_path).as_str());
+                    self.config.log(format!("magic_installer folder path: {}", &self.config.magic_installer_folder).as_str());
+
+                    self.download_page(&filepath, &self.config.modloader_url).unwrap_or_log(&mut self.config.debugfile);
+                    self.unzip_page(&filename, &self.config.magic_installer_folder).unwrap_or_log(&mut self.config.debugfile);
+                    self.executable_page(&executable_path).unwrap_or_log(&mut self.config.debugfile);
+                }
+                2 => { // remove all files
                     let folders = FILES_TO_REMOVE;
                     self.remove_files_page(&self.config.minecraft_folder, folders)?;
-                    self.download_page(&filepath, &self.config.modpack_url)?;
-                    self.unzip_page(&filepath, &self.config.minecraft_folder)?;
-                }
-                1 => {
-                    let filepath = format!("{}{}", &self.config.magic_installer_folder, "fabric-installer.zip");
-                    let executable_path = format!("{}{}", &self.config.magic_installer_folder, "fabric-installer.exe");
-                    self.download_page(&filepath, &self.config.modloader_url)?;
-                    self.unzip_page(&filepath, &self.config.magic_installer_folder)?;
-                    self.executable_page(&executable_path)?;
-                }
-                2 => {
-                    let folders = FILES_TO_REMOVE;
-                    self.remove_files_page(&self.config.minecraft_folder, folders)?;
-                }
+                } // exit
                 3 => {return Ok(AppStatus::Exit)}
                 _ => {}
             }},
@@ -121,9 +148,10 @@ impl Display {
     }
 
     fn draw_main_menu(&self, selected: usize, options: &[&str]) -> crossterm::Result<()>{
-        let title = MAIN_TITLE;
-        let author = format!("{} - {}", AUTHOR, VERSION);
-        let bottom_text = BOTTOM_TEXT;
+        let title: &str = MAIN_TITLE;
+        let author: String = format!("{} - {}", AUTHOR, VERSION);
+        let bottom_text: &str = BOTTOM_TEXT;
+        let controls: &str = CONTROLS;
 
         let first_line = 100; //title.lines().next().unwrap(); // 100 is the length of the first line of the title
         let padding = (self.terminal_width.saturating_sub(first_line) / 2) as usize; 
@@ -138,6 +166,8 @@ impl Display {
 
         execute!(stdout, cursor::MoveTo(0, 15))?;
         self.write_stylized_centered(author.as_str().with(Color::Blue).attribute(Attribute::Dim))?;
+        execute!(stdout, cursor::MoveTo(0, 17))?;
+        self.write_stylized_centered(controls.with(Color::DarkGrey).attribute(Attribute::Dim))?;
         execute!(stdout, cursor::MoveTo(0, self.terminal_height))?;
         self.write_stylized_centered(bottom_text.with(Color::DarkGrey).attribute(Attribute::Dim))?;
 
@@ -164,10 +194,10 @@ impl Display {
 
     // Téléchargement et Installation
     pub fn download_page(&self, path: &str, url: &str) -> crossterm::Result<()> {
-        let path = Arc::new(path.to_owned());
-        let url = Arc::new(url.to_owned());
+        let path: Arc<String> = Arc::new(path.to_owned());
+        let url: Arc<String> = Arc::new(url.to_owned());
 
-        let mut stdout = io::stdout();
+        let mut stdout: io::Stdout = io::stdout();
         let height: u16 = (self.terminal_height as f32 / 2.0) as u16;
         execute!(stdout,
             terminal::Clear(terminal::ClearType::All),
@@ -195,6 +225,14 @@ impl Display {
                 Ok(DownloadStatus::Downloaded) => {
                     break;
                 },
+                Ok(DownloadStatus::Error(error)) => {
+                    execute!(stdout, cursor::MoveTo(0, height))?;
+                    self.write_stylized_centered(format!("Erreur: {}", error).as_str().with(Color::Red).attribute(Attribute::Bold)).unwrap();
+                    sleep(Duration::from_secs(2));
+                    execute!(stdout,terminal::Clear(terminal::ClearType::All))?;
+                    execute!(stdout, cursor::MoveTo(0, height))?;
+                    return Err(io::Error::new(io::ErrorKind::Other, "Download Error"));
+                } 
                 Err(_) => {}
             }
         }
@@ -225,7 +263,7 @@ impl Display {
         bar
     }
 
-    pub fn unzip_page(&self, filepath: &str, folderpath: &str) -> crossterm::Result<()> {
+    pub fn unzip_page(&self, filename: &str, folderpath: &str) -> crossterm::Result<()> {
         let height = self.terminal_height / 2u16;
         let mut stdout = io::stdout();
         execute!(stdout,
@@ -233,7 +271,7 @@ impl Display {
             cursor::MoveTo(0, height - 2))?;
 
         self.write_centered("Installation en cours...")?; //lang
-        unzip_file(filepath, folderpath).unwrap();
+        unzip_file(filename, folderpath)?;
         
         execute!(stdout,
             terminal::Clear(terminal::ClearType::All),

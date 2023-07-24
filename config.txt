@@ -1,3 +1,3 @@
-test=http://www.dropbox.com/scl/fi/k6mrn3f4a9snnu1svlbsz/.minecraft.zip?rlkey=d0o4h3eue38tdz0imn3zm15f4&dl=1
-modpack_url=https://www.curseforge.com/minecraft/mc-mods/createaddition
-modloader_url=http://www.dropbox.com/scl/fi/ubk6oetuwugkcop10ziqd/fabric-installer.zip?rlkey=rz5o1vw6a7mvy9txpkxvjezef&dl=1
+modpack_url=https://www.dropbox.com/sh/idok2pnzrxvackh/AAAh4HgNQk_RH16xHDX6nBa8a?dl=1
+modloader_url=https://www.dropbox.com/sh/zibj4mm03dqjqaq/AAAqrab7I3iKG_C61iBQHp3Ka?dl=1
+modloader_execname=fabric-installer.exe
