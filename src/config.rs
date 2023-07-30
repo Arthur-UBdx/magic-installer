@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::fs::File;
 
+use crate::files::create_folder;
+
 use std::io::Write;
 
-pub const VERSION: &str = "v2.1.0";
+pub const VERSION: &str = "v2.1.1";
 pub const MAIN_TITLE: &str = include_str!("../title.txt");
 pub const AUTHOR: &str = "RICHELET Arthur - 2023";
 pub const CONTROLS: &str = "↑ ↓ pour naviguer, Entrée pour valider, Esc pour quitter";
@@ -30,12 +32,15 @@ impl Config {
     pub fn from(config: &str, debug: bool) -> Config {
         let config = Config::parse_hashmap(config, "\n", "=");
 
+        let magic_installer_folderpath = format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\");
+        create_folder(magic_installer_folderpath.as_str());
+
         Config {
             modpack_url: config.get("modpack_url").unwrap().to_string(),
             modloader_url: config.get("modloader_url").unwrap().to_string(),
             modloader_execname: config.get("modloader_execname").unwrap().to_string(),
             minecraft_folder: get_env_path(MINECRAFT_FOLDER),
-            magic_installer_folder: format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\"),
+            magic_installer_folder: magic_installer_folderpath,
             debugfile: File::create(format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer\\debug.txt")).unwrap(),
             debug: debug,
         }
