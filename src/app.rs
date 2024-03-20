@@ -182,7 +182,7 @@ impl Display {
             execute!(stdout, cursor::MoveTo(0, 20 + 2*index as u16)).unwrap();
             execute!(stdout, terminal::Clear(terminal::ClearType::CurrentLine)).unwrap();
             if index == selected {
-                self.write_stylized_centered(format!("> {}", option).as_str().with(Color::Green).attribute(Attribute::Bold)).unwrap();
+                self.write_stylized_centered(format!("> {} <", option).as_str().with(Color::Green).attribute(Attribute::Bold)).unwrap();
             } else {
                 self.write_centered(option).unwrap();
             }
