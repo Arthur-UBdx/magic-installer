@@ -1,8 +1,6 @@
 # Minecraft Magic Installer
 
-This is a simple script that will install all the mods you need to play on a private server, you can change the modpack and mod loader in the `config` file.
-
-----
+This is a simple program that will install all the mods you need to play on a private server, you can change the modpack and mod loader in the `config` file.
 
 ## Config
 
@@ -23,3 +21,8 @@ modloader_url=[the fabric mod loader url]
 ### 2.1.0
 
 - Added support for dropbox zip files
+
+### 2.2.0
+
+- Added UNIX support.
+- Added support for modifiable config file.
