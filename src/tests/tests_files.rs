@@ -11,10 +11,10 @@ mod tests {
 
     #[test]
     fn test_expand_variables() {
-        let input = String::from("%APPDATA%\\magic_installer");
+        let input = String::from("$HOME/magic_installer");
         let expected_output = format!(
-            "{}\\magic_installer",
-            env::var("APPDATA").unwrap_or_default()
+            "{}/magic_installer",
+            env::var("HOME").unwrap_or_default()
         );
         let result = expand_variables(input);
         assert_eq!(result, expected_output);

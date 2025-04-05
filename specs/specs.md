@@ -53,3 +53,8 @@ La configuration doit contenir les informations suivantes:
     - Dossier de jeu Minecraft
     - Dossier de mods à remplacer si existant sinon créer / supprimer
     - Dossier de mods à fusionner si existant
+
+## SP-FN-006
+
+Le programme doit enregistrer des logs dans un fichier `logs.txt` dans `.minecraft/magic_installer`.
+Toutes les erreurs entraînant la fin de l'éxecution du programme doivent être loggés.

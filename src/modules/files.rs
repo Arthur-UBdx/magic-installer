@@ -83,7 +83,7 @@ pub fn download_file(path: &str, url: &str, tx: mpsc::Sender<DownloadStatus>) ->
 //%-----------------------------------------------------------------//
 #[allow(dead_code)]
 pub enum FileStatus {
-    FileCreated,
+    DoesntExists,
     Exists,
     Error,
 }
@@ -93,7 +93,7 @@ pub fn create_folder_if_not_exists(path: &str) -> FileStatus {
     if !Path::new(path).exists() {
         let folder = create_dir_all(path);
         match folder {
-            Ok(_) => return FileStatus::FileCreated,
+            Ok(_) => return FileStatus::DoesntExists,
             Err(_) => return FileStatus::Error,
         }
     }
@@ -113,7 +113,7 @@ pub fn create_file_if_not_exists(path: &str) -> FileStatus {
     if !Path::new(path).exists() {
         let file = File::create(path);
         match file {
-            Ok(_) => return FileStatus::FileCreated,
+            Ok(_) => return FileStatus::DoesntExists,
             Err(_) => return FileStatus::Error,
         }
     }
@@ -170,6 +170,31 @@ pub fn unzip_file(filename: &str, folderpath: &str) -> Result<(), io::Error> {
         }
         Err(err) => Err(err),
     }
+}
+
+//%-----------------------------------------------------------------//
+//%--                                                               //
+//%-- #DERIVED:                                                     //
+//%-- Removes a folder, returns FileStatus::Error if the folder     //
+//%-- can't be                                                      //
+//%-- removed,                                                      //
+//%-- FileStatus::DoesntExists if the file doesn't exists and       //
+//%-- FileStatus::Exists if the file was removed                    //
+//%--                                                               //
+//%-----------------------------------------------------------------//
+/// Remove a folder, returns FileStatus::Error if the folder can't be removed,
+/// FileStatus::DoesntExists if the file doesn't exists and
+/// FileStatus::Exists if the file was removed
+/// the folder is specified by the path
+pub fn remove_folder(path: &str) -> FileStatus {
+    if Path::new(path).exists() {
+        let folder = std::fs::remove_dir_all(path);
+        match folder {
+            Ok(_) => return FileStatus::Exists,
+            Err(_) => return FileStatus::Error,
+        }
+    }
+    FileStatus::DoesntExists
 }
 
 //%-----------------------------------------------------------------//
@@ -275,40 +300,65 @@ fn launch_executable_jar(filepath: &str, args: Vec<&str>) -> Result<(), Executab
 /// Expand the variables in a path string, bash style.
 /// Variables like %APPDATA% or $HOME will be replaced by their values.
 /// The function will return the expanded path as a string.
+#[allow(unreachable_patterns)]
 pub fn expand_variables(path: String) -> String {
     match config::OS_TYPE {
         config::OSType::Windows => {
             // captures the variables in the path string
-            let caps = regex::Regex::new(WIN_VARIABLES_REGEX)
-                .unwrap()
-                .captures_iter(&path);
+            let caps = match regex::Regex::new(WIN_VARIABLES_REGEX) {
+                Ok(regex) => regex,
+                Err(e) => panic_log(format!("Error creating windows regex: {}", e)),
+            };
             // clones the path to modify it
             let mut expanded_path = path.clone();
             // for each capture, get the variable name and replace it with its value
-            for cap in caps {
+            for cap in caps.captures_iter(&path) {
                 let var = cap.get(1).unwrap().as_str();
                 let value = std::env::var(var).unwrap_or_default();
                 expanded_path = expanded_path.replace(&cap[0], &value);
             }
             expanded_path
         }
-        &config::OSType::Linux => {
-            // captures the variables in the path string
-            let caps = regex::Regex::new(LINUX_VARIABLES_REGEX)
-                .unwrap()
-                .captures_iter(&path);
+        config::OSType::Linux => {
+            let caps = match regex::Regex::new(LINUX_VARIABLES_REGEX) {
+                Ok(regex) => regex,
+                Err(e) => panic_log(format!("Error creating linux regex: {}", e)),
+            };
             // clones the path to modify it
             let mut expanded_path = path.clone();
             // for each capture, get the variable name and replace it with its value
-            for cap in caps {
+            for cap in caps.captures_iter(&path) {
                 let var = cap.get(1).unwrap().as_str();
                 let value = std::env::var(var).unwrap_or_default();
                 expanded_path = expanded_path.replace(&cap[0], &value);
             }
             expanded_path
         }
+        // unreachable pattern but considered for safety in case more OS were added
         _ => {
-            panic!("OS not supported");
+            panic_log(format!("OS not supported"));
         }
     }
+}
+
+/// Log a message to the debug file.
+pub fn log(message: &str) -> () {
+    append_to_file(
+        format!(
+            "{}{}\n",
+            config::get_minecraft_folder(),
+            "magic_installer/debug.txt"
+        )
+        .as_str(),
+        message,
+    )
+    .unwrap_or_else(|_| {
+        panic!("Impossible d'écrire dans le fichier de log : {}", message);
+    });
+}
+
+/// Panics and logs the message to the debug file.
+pub fn panic_log(message: String) -> ! {
+    log(&message);
+    panic!("{}", &message);
 }

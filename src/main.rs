@@ -10,7 +10,10 @@ use std::env;
 
 fn main() -> crossterm::Result<()> {
 
-    let mut config_string = String::default();
+    let config_string: String;
+    let args: Vec<String>;
+    let mut debug: bool;
+    let mut config: Config;
     
     //%-----------------------------------------------------------------//
     //%--                                                               //
@@ -26,9 +29,8 @@ fn main() -> crossterm::Result<()> {
     //%--                                                               //
     //%-----------------------------------------------------------------//
 
-    let mut debug: bool = false;
-
-    let args: Vec<String> = env::args().collect();
+    debug = false;
+    args = env::args().collect();
 
     if args.len() > 1 && args[1].as_str() == "-debug" {
         debug = true;
@@ -46,10 +48,10 @@ fn main() -> crossterm::Result<()> {
     //%-----------------------------------------------------------------//
     match modules::files::create_folder_if_not_exists(format!(
         "{}{}",
-        modules::config::MINECRAFT_FOLDER,
+        modules::config::get_minecraft_folder(),
         "magic_installer/"
     ).as_str()) {
-        modules::files::FileStatus::FileCreated => {}
+        modules::files::FileStatus::DoesntExists => {}
         modules::files::FileStatus::Exists => {}
         modules::files::FileStatus::Error => {
             panic!("Error creating magic_installer folder");
@@ -62,14 +64,14 @@ fn main() -> crossterm::Result<()> {
     //-----
     match modules::files::create_file_if_not_exists(format!(
         "{}{}",
-        modules::config::MINECRAFT_FOLDER,
+        modules::config::get_minecraft_folder(),
         "magic_installer/config.txt"
     ).as_str()) {
         //-----
         // si le fichier n'existe pas, on le crée
         // et on met la config par défaut
         //-----
-        modules::files::FileStatus::FileCreated => {
+        modules::files::FileStatus::DoesntExists => {
             config_string = String::from(modules::config::DEFAULT_CONFIG);
         }
         //-----
@@ -78,7 +80,7 @@ fn main() -> crossterm::Result<()> {
         modules::files::FileStatus::Exists => {
             config_string = modules::files::read_file(format!(
                 "{}{}",
-                modules::config::MINECRAFT_FOLDER,
+                modules::config::get_minecraft_folder(),
                 "magic_installer/config.txt"
             ).as_str()).expect("Error reading config file");
         }
@@ -93,7 +95,7 @@ fn main() -> crossterm::Result<()> {
 
     // on charge la config lue ou par défaut
     // et on la parse    
-    let config: Config = Config::from(&config_string);
+    config = Config::from(&config_string);
     
     // on active le debug si demandé
     config.enable_debug(debug);

@@ -1,10 +1,8 @@
 use std::collections::HashMap;
-use std::fs::File;
 
 use crate::modules;
 use crate::modules::files::create_folder_if_not_exists;
-
-use std::io::Write;
+use crate::modules::files::panic_log;
 
 pub const VERSION: &str = "v2.1.2";
 pub const MAIN_TITLE: &str = include_str!("../../title.txt");
@@ -49,16 +47,21 @@ pub const OS_TYPE: &OSType = if cfg!(target_os = "windows") {
 } else {
     panic!("OS not supported");
 };
-pub const MINECRAFT_FOLDER: &str = match OS_TYPE {
-    OSType::Windows => {
-        modules::files::expand_variables(String::from(modules::config::MINECRAFT_FOLDER_WINDOWS))
-            .as_str()
+
+pub fn get_minecraft_folder() -> String {
+    // if the environment variable OVERRIDE_MINECRAFT_FOLDER is set, use it
+    if let Ok(override_path) = std::env::var("OVERRIDE_MINECRAFT_FOLDER") {
+        modules::files::expand_variables(override_path)
+    } else {
+        // else use the default path based on the OS
+        match OS_TYPE {
+            OSType::Windows => {
+                modules::files::expand_variables(String::from(MINECRAFT_FOLDER_WINDOWS))
+            }
+            OSType::Linux => modules::files::expand_variables(String::from(MINECRAFT_FOLDER_LINUX)),
+        }
     }
-    OSType::Linux => {
-        modules::files::expand_variables(String::from(modules::config::MINECRAFT_FOLDER_LINUX))
-            .as_str()
-    }
-};
+}
 
 //%-----------------------------------------------------------------//
 //%--                                                               //
@@ -92,20 +95,26 @@ impl Config {
         let config = Config::parse_hashmap(config, "\n", "=");
 
         let magic_installer_folderpath =
-            format!("{}{}", get_env_path(MINECRAFT_FOLDER), "magic_installer/");
-        create_folder_if_not_exists(magic_installer_folderpath.as_str());
+            format!("{}{}", get_minecraft_folder(), "magic_installer/");
+        match create_folder_if_not_exists(magic_installer_folderpath.as_str()) {
+            modules::files::FileStatus::DoesntExists => {}
+            modules::files::FileStatus::Exists => {}
+            modules::files::FileStatus::Error => {
+                panic_log(String::from("Error creating magic_installer folder"));
+            }
+        }
 
         Config {
             modpack_url: config.get("modpack_url").unwrap().to_string(),
             modloader_url: config.get("modloader_url").unwrap().to_string(),
             modloader_execname: config.get("modloader_execname").unwrap().to_string(),
-            minecraft_folder: MINECRAFT_FOLDER,
+            minecraft_folder: get_minecraft_folder(),
             magic_installer_folder: magic_installer_folderpath,
-            debug: false,
+            minecraft_folder: get_minecraft_folder(),
         }
     }
 
-    pub fn enable_debug(mut self, enable: bool) {
+    pub fn enable_debug(&mut self, enable: bool) {
         self.debug = enable;
     }
 
@@ -123,14 +132,6 @@ impl Config {
             }
         });
         result
-    }
-
-    /// Log a message to the debug file.
-    pub fn log(&mut self, message: &str) {
-        modules::files::append_to_file(
-            format!("{}{}", MINECRAFT_FOLDER, "magic_installer/debug.txt").as_str(),
-            message,
-        )
     }
 }
 
