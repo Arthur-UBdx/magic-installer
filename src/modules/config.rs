@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+#[allow(unused_imports)]
+use crate::modules::{app, files, utils};
+
 use crate::modules;
-use crate::modules::files::create_folder_if_not_exists;
-use crate::modules::files::panic_log;
+use crate::modules::utils::UnwrapOrLog;
 
 pub const VERSION: &str = "v2.1.2";
 pub const MAIN_TITLE: &str = include_str!("../../title.txt");
@@ -51,14 +53,14 @@ pub const OS_TYPE: &OSType = if cfg!(target_os = "windows") {
 pub fn get_minecraft_folder() -> String {
     // if the environment variable OVERRIDE_MINECRAFT_FOLDER is set, use it
     if let Ok(override_path) = std::env::var("OVERRIDE_MINECRAFT_FOLDER") {
-        modules::files::expand_variables(override_path)
+        modules::utils::expand_variables(override_path)
     } else {
         // else use the default path based on the OS
         match OS_TYPE {
             OSType::Windows => {
-                modules::files::expand_variables(String::from(MINECRAFT_FOLDER_WINDOWS))
+                modules::utils::expand_variables(String::from(MINECRAFT_FOLDER_WINDOWS))
             }
-            OSType::Linux => modules::files::expand_variables(String::from(MINECRAFT_FOLDER_LINUX)),
+            OSType::Linux => modules::utils::expand_variables(String::from(MINECRAFT_FOLDER_LINUX)),
         }
     }
 }
@@ -94,23 +96,24 @@ impl Config {
     pub fn from(config: &str) -> Config {
         let config = Config::parse_hashmap(config, "\n", "=");
 
-        let magic_installer_folderpath =
-            format!("{}{}", get_minecraft_folder(), "magic_installer/");
-        match create_folder_if_not_exists(magic_installer_folderpath.as_str()) {
-            modules::files::FileStatus::DoesntExists => {}
-            modules::files::FileStatus::Exists => {}
-            modules::files::FileStatus::Error => {
-                panic_log(String::from("Error creating magic_installer folder"));
-            }
-        }
+        utils::log(&format!("LOG: Config:\n{:?}", config));
 
         Config {
-            modpack_url: config.get("modpack_url").unwrap().to_string(),
-            modloader_url: config.get("modloader_url").unwrap().to_string(),
-            modloader_execname: config.get("modloader_execname").unwrap().to_string(),
+            modpack_url: config
+                .get("modpack_url")
+                .unwrap_or_log_panic("Could not get 'modpack_url'")
+                .to_string(),
+            modloader_url: config
+                .get("modloader_url")
+                .unwrap_or_log_panic("Could not get 'modloader_url'")
+                .to_string(),
+            modloader_execname: config
+                .get("modloader_execname")
+                .unwrap_or_log_panic("Could not get 'modloader_execname'")
+                .to_string(),
             minecraft_folder: get_minecraft_folder(),
-            magic_installer_folder: magic_installer_folderpath,
-            minecraft_folder: get_minecraft_folder(),
+            magic_installer_folder: format!("{}{}", get_minecraft_folder(), "magic_installer/"),
+            debug: false,
         }
     }
 

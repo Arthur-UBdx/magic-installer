@@ -2,7 +2,10 @@ mod modules {
     pub mod app;
     pub mod config;
     pub mod files;
+    pub mod utils;
 }
+
+use modules::utils::UnwrapOrLog;
 
 use crate::modules::app::{AppStatus, Display};
 use crate::modules::config::Config;
@@ -82,7 +85,7 @@ fn main() -> crossterm::Result<()> {
                 "{}{}",
                 modules::config::get_minecraft_folder(),
                 "magic_installer/config.txt"
-            ).as_str()).expect("Error reading config file");
+            ).as_str()).unwrap_or_log_panic("Error reading config file");
         }
         //-----
         // si le fichier n'a pas pu être créé, on affiche une erreur

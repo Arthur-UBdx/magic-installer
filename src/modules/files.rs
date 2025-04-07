@@ -1,22 +1,9 @@
-use crate::modules::config;
 use std::fmt;
 use std::fs::{create_dir_all, File};
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::Command;
 use std::sync::mpsc;
-
-//%-----------------------------------------------------------------//
-//%--                                                               //
-//%-- ## SP-PT-001                                                  //
-//%--                                                               //
-//%-- L'utilitaire doit être capable de fonctionner sur un système  //
-//%-- d'exploitation Windows                                        //
-//%-- et Linux.                                                     //
-//%--                                                               //
-//%-----------------------------------------------------------------//
-const WIN_VARIABLES_REGEX: &str = r"%([A-z])%";
-const LINUX_VARIABLES_REGEX: &str = r"\$([A-z])+";
 
 //%-----------------------------------------------------------------//
 //%--                                                               //
@@ -290,75 +277,41 @@ fn launch_executable_jar(filepath: &str, args: Vec<&str>) -> Result<(), Executab
 
 //%-----------------------------------------------------------------//
 //%--                                                               //
-//%-- DERIVED:                                                      //
-//%--                                                               //
-//%-- Expands the variables in a path string, bash style.           //
-//%-- Variables like %APPDATA% or $HOME will be replaced by their   //
-//%-- values. The result will be returned in a string               //
+//%-- UNIT TESTS:                                                   //
 //%--                                                               //
 //%-----------------------------------------------------------------//
-/// Expand the variables in a path string, bash style.
-/// Variables like %APPDATA% or $HOME will be replaced by their values.
-/// The function will return the expanded path as a string.
-#[allow(unreachable_patterns)]
-pub fn expand_variables(path: String) -> String {
-    match config::OS_TYPE {
-        config::OSType::Windows => {
-            // captures the variables in the path string
-            let caps = match regex::Regex::new(WIN_VARIABLES_REGEX) {
-                Ok(regex) => regex,
-                Err(e) => panic_log(format!("Error creating windows regex: {}", e)),
-            };
-            // clones the path to modify it
-            let mut expanded_path = path.clone();
-            // for each capture, get the variable name and replace it with its value
-            for cap in caps.captures_iter(&path) {
-                let var = cap.get(1).unwrap().as_str();
-                let value = std::env::var(var).unwrap_or_default();
-                expanded_path = expanded_path.replace(&cap[0], &value);
-            }
-            expanded_path
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[allow(unused_imports)]
+    use crate::modules::{config, files, app, utils};
+
+    #[test]
+    fn test_unzip_file() {
+        let filepath = "./tests/assets/archive.zip";
+        let extracted_file = "./tests/assets/unzipped.txt";
+
+        // Remove the extracted file if it exists
+        if Path::new(extracted_file).exists() {
+            let result = std::fs::remove_file(extracted_file);
+            assert!(result.is_ok(), "Failed to remove the extracted file");
         }
-        config::OSType::Linux => {
-            let caps = match regex::Regex::new(LINUX_VARIABLES_REGEX) {
-                Ok(regex) => regex,
-                Err(e) => panic_log(format!("Error creating linux regex: {}", e)),
-            };
-            // clones the path to modify it
-            let mut expanded_path = path.clone();
-            // for each capture, get the variable name and replace it with its value
-            for cap in caps.captures_iter(&path) {
-                let var = cap.get(1).unwrap().as_str();
-                let value = std::env::var(var).unwrap_or_default();
-                expanded_path = expanded_path.replace(&cap[0], &value);
-            }
-            expanded_path
-        }
-        // unreachable pattern but considered for safety in case more OS were added
-        _ => {
-            panic_log(format!("OS not supported"));
-        }
+
+        // Unzip the file
+        let result = unzip_file(filepath, "./tests/assets");
+        assert!(result.is_ok(), "Failed to unzip the file");
+        
+        // Check if the extracted file exists
+        assert!(Path::new(extracted_file).exists(), "The extracted file does not exist");
+
+        // Read the content of the extracted file
+        let mut file = File::open(extracted_file).unwrap();
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Failed to read the extracted file");
+
+        // Check the content of the extracted file
+        let content = "I am from a zipped file";
+        assert_eq!(content, "", "The content of the extracted file is incorrect");
     }
-}
-
-/// Log a message to the debug file.
-pub fn log(message: &str) -> () {
-    append_to_file(
-        format!(
-            "{}{}\n",
-            config::get_minecraft_folder(),
-            "magic_installer/debug.txt"
-        )
-        .as_str(),
-        message,
-    )
-    .unwrap_or_else(|_| {
-        panic!("Impossible d'écrire dans le fichier de log : {}", message);
-    });
-}
-
-/// Panics and logs the message to the debug file.
-pub fn panic_log(message: String) -> ! {
-    log(&message);
-    panic!("{}", &message);
 }

@@ -1,11 +1,14 @@
-use crate::modules::config::{
+#[allow(unused_imports)]
+use crate::modules::{app, config, files, utils};
+
+use config::{
     Config, AUTHOR, BOTTOM_TEXT, CONTROLS, FILES_TO_REMOVE, MAIN_MENU_OPTIONS, MAIN_TITLE, VERSION,
 };
-use crate::modules::files;
-use crate::modules::files::{
-    download_file, launch_executable, panic_log, remove_folder, unzip_file, DownloadStatus,
-    FileStatus,
+use files::{
+    download_file, launch_executable, remove_folder, unzip_file, DownloadStatus, FileStatus,
 };
+
+use utils::UnwrapOrLog;
 
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -26,27 +29,6 @@ use std::sync::mpsc;
 pub enum AppStatus {
     Loop,
     Exit,
-}
-
-/// This trait is used to unwrap a Result and log the error if it occurs.
-/// It is a custom implementation of the `unwrap_or` method for Result types.
-/// It takes a Result<T, E> and returns T if the result is Ok.
-/// If the result is an Err, it logs the error message and panics.
-/// This is useful for handling errors in a consistent way throughout the application.
-trait UnwrapOrLog<T, E> {
-    fn unwrap_or_log(self) -> T;
-}
-
-impl<T, E: std::fmt::Display + std::fmt::Debug> UnwrapOrLog<T, E> for Result<T, E> {
-    fn unwrap_or_log(self) -> T {
-        match self {
-            Ok(value) => value,
-            Err(error) => {
-                panic_log(format!("Error: {:?}", error));
-                // panic!();
-            }
-        }
-    }
 }
 
 pub struct Display<'a> {
@@ -167,14 +149,14 @@ impl<'a> Display<'a> {
                             format!("{}{}", &self.config.minecraft_folder, filename);
                         let folders: &[&str] = FILES_TO_REMOVE;
 
-                        files::log(format!("modpack zip file path: {}", &filepath).as_str());
-                        files::log(format!("files to remove path: {:?}", &folders).as_str());
+                        utils::log(format!("modpack zip file path: {}", &filepath).as_str());
+                        utils::log(format!("files to remove path: {:?}", &folders).as_str());
 
                         self.remove_files_page(&self.config.minecraft_folder, folders)?;
                         self.download_page(&filepath, &self.config.modpack_url)
-                            .unwrap_or_log();
+                            .unwrap_or_log_panic("Error when launching Download page");
                         self.unzip_page(filename, &self.config.minecraft_folder)
-                            .unwrap_or_log();
+                            .unwrap_or_log_panic("Error when launching Unzip page");
                     }
                     1 => {
                         // install the modloader (fabric/forge)
@@ -186,9 +168,9 @@ impl<'a> Display<'a> {
                             &self.config.magic_installer_folder, self.config.modloader_execname
                         );
 
-                        files::log(format!("modloader zip path: {}", &filepath).as_str());
-                        files::log(format!("modloader exec path: {}", &executable_path).as_str());
-                        files::log(
+                        utils::log(format!("modloader zip path: {}", &filepath).as_str());
+                        utils::log(format!("modloader exec path: {}", &executable_path).as_str());
+                        utils::log(
                             format!(
                                 "magic_installer folder path: {}",
                                 &self.config.magic_installer_folder
@@ -197,10 +179,11 @@ impl<'a> Display<'a> {
                         );
 
                         self.download_page(&filepath, &self.config.modloader_url)
-                            .unwrap_or_log();
+                            .unwrap_or_log_panic("Error when launching Download page");
                         self.unzip_page(filename, &self.config.magic_installer_folder)
-                            .unwrap_or_log();
-                        self.executable_page(&executable_path).unwrap_or_log();
+                            .unwrap_or_log_panic("Error when launching Unzip page");
+                        self.executable_page(&executable_path)
+                            .unwrap_or_log_panic("Error when launching Executable page");
                     }
                     2 => {
                         // remove all files
@@ -415,7 +398,8 @@ impl<'a> Display<'a> {
         )?;
 
         self.write_centered("Lancement de l'installateur du Modloader")?; //lang
-        launch_executable(filepath).unwrap_or_log();
+        launch_executable(filepath)
+            .unwrap_or_log_panic("Error when launching modloader executable");
 
         execute!(
             stdout,
@@ -453,13 +437,13 @@ impl<'a> Display<'a> {
                         terminal::Clear(terminal::ClearType::All),
                         cursor::MoveTo(0, height - 2)
                     )
-                    .unwrap_or_log();
+                    .unwrap_or_log_panic("Error when removing modpack files");
 
                     self.write_centered("Fichier déja supprimé").unwrap(); //lang
                     sleep(Duration::from_millis(250));
                 }
                 FileStatus::Error => {
-                    panic_log(String::from("Error when trying to remove modpack folder"));
+                    utils::panic_log(String::from("Error when trying to remove modpack folder"));
                 }
             };
         });
