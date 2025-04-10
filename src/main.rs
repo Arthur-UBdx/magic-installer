@@ -5,39 +5,16 @@ mod modules {
     pub mod utils;
 }
 
-use modules::utils::UnwrapOrLog;
-
+#[allow(unused_imports)]
+use modules::{utils, app, config, files};
+use modules::utils::LogExcept;
 use crate::modules::app::{AppStatus, Display};
 use crate::modules::config::Config;
-use std::env;
 
 fn main() -> crossterm::Result<()> {
 
     let config_string: String;
-    let args: Vec<String>;
-    let mut debug: bool;
-    let mut config: Config;
-    
-    //%-----------------------------------------------------------------//
-    //%--                                                               //
-    //%-- SP-FN-005:                                                    //
-    //%--                                                               //
-    //%-- Le programme doit pouvoir être lancé en mode debug au travers //
-    //%-- d'un argument de ligne de commande.                           //
-    //%--                                                               //
-    //%-- Implémentation:                                               //
-    //%--                                                               //
-    //%-- Parsing des arguments de la ligne de commande, si l'argument  //
-    //%-- -debug est présent, le mode debug est activé.                 //
-    //%--                                                               //
-    //%-----------------------------------------------------------------//
-
-    debug = false;
-    args = env::args().collect();
-
-    if args.len() > 1 && args[1].as_str() == "-debug" {
-        debug = true;
-    }
+    let config: Config;
 
     //%-----------------------------------------------------------------//
     //%--                                                               //
@@ -49,15 +26,16 @@ fn main() -> crossterm::Result<()> {
     //%-- configuration par défaut.                                     //
     //%--                                                               //
     //%-----------------------------------------------------------------//
-    match modules::files::create_folder_if_not_exists(format!(
+    let magic_installer_folder = format!(
         "{}{}",
         modules::config::get_minecraft_folder(),
         "magic_installer/"
-    ).as_str()) {
-        modules::files::FileStatus::DoesntExists => {}
-        modules::files::FileStatus::Exists => {}
-        modules::files::FileStatus::Error => {
-            panic!("Error creating magic_installer folder");
+    );
+    match modules::files::create_folder_if_not_exists(&magic_installer_folder) {
+        modules::files::FileStatus::NoChange => {}
+        modules::files::FileStatus::Ok => {}
+        modules::files::FileStatus::Error(e) => {
+            panic!("Error creating magic_installer folder {} : {}", &magic_installer_folder, e);
         }
     }
 
@@ -65,43 +43,45 @@ fn main() -> crossterm::Result<()> {
     // on check si le fichier de config existe
     // sinon on le crée
     //-----
-    match modules::files::create_file_if_not_exists(format!(
-        "{}{}",
-        modules::config::get_minecraft_folder(),
-        "magic_installer/config.txt"
-    ).as_str()) {
+    match modules::files::create_file_if_not_exists(&format!(
+        "{}magic_installer/config.txt",
+        modules::config::get_minecraft_folder())) {
         //-----
         // si le fichier n'existe pas, on le crée
         // et on met la config par défaut
         //-----
-        modules::files::FileStatus::DoesntExists => {
+        modules::files::FileStatus::Ok => {
             config_string = String::from(modules::config::DEFAULT_CONFIG);
+            files::append_to_file(
+                &format!(
+                        "{}magic_installer/config.txt",
+                        modules::config::get_minecraft_folder()), &config_string
+                )
+                .unwrap_or_else(|e| {
+                    panic!("Error creating config file : {}", e);
+                });
         }
         //-----
         // si le fichier existe, on le lit
         //-----
-        modules::files::FileStatus::Exists => {
+        modules::files::FileStatus::NoChange => {
             config_string = modules::files::read_file(format!(
                 "{}{}",
                 modules::config::get_minecraft_folder(),
                 "magic_installer/config.txt"
-            ).as_str()).unwrap_or_log_panic("Error reading config file");
+            ).as_str()).log_expect("Error reading config file");
         }
         //-----
         // si le fichier n'a pas pu être créé, on affiche une erreur
         // et on quitte le programme
         //-----
-        modules::files::FileStatus::Error => {
-            panic!("Error creating config file");
+        modules::files::FileStatus::Error(e) => {
+            panic!("Error creating config file : {}", e);
         }
     }
-
     // on charge la config lue ou par défaut
     // et on la parse    
-    config = Config::from(&config_string);
-    
-    // on active le debug si demandé
-    config.enable_debug(debug);
+    config = Config::from(&utils::remove_comments(config_string));
 
     let mut display = Display::open(&config)?;
     loop {
@@ -110,9 +90,6 @@ fn main() -> crossterm::Result<()> {
         }
         crossterm::event::read().unwrap();
     }
-    display.close()?;
+    Display::close()?;
     Ok(())
 }
-
-//TODO
-// - Add a way to change config.

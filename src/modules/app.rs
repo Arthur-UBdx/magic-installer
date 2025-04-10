@@ -1,15 +1,12 @@
 #[allow(unused_imports)]
 use crate::modules::{app, config, files, utils};
 
-use config::{
-    Config, AUTHOR, BOTTOM_TEXT, CONTROLS, FILES_TO_REMOVE, MAIN_MENU_OPTIONS, MAIN_TITLE, VERSION,
-};
 use files::{
     download_file, launch_executable, remove_folder, unzip_file, DownloadStatus, FileStatus,
 };
 
-use utils::UnwrapOrLog;
-
+use utils::LogExcept;
+use std::panic;
 use std::io::{self, Write};
 use std::sync::Arc;
 use std::thread;
@@ -26,6 +23,24 @@ use crossterm::{
 
 use std::sync::mpsc;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const AUTHOR: &str = "RICHELET Arthur - 2025";
+const CONTROLS: &str = "↑ ↓ pour naviguer, Entrée pour valider, Esc pour quitter";
+const BOTTOM_TEXT: &str = "Un installateur pour les gouverner tous";
+const MAIN_MENU_OPTIONS: &[&str] = &[
+    "Installer le modpack",
+    "Installer le modloader",
+    "Supprimer les fichiers du modpack",
+    "Ouvrir le fichier de configuration",
+    "Quitter (esc)",
+    ];
+
+#[cfg(target_os = "windows")]
+const MAIN_TITLE: &str = include_str!("../../assets/title.txt");
+#[cfg(target_os = "linux")]
+const MAIN_TITLE: &str = include_str!("../../assets/title.txt");
+
+
 pub enum AppStatus {
     Loop,
     Exit,
@@ -34,28 +49,63 @@ pub enum AppStatus {
 pub struct Display<'a> {
     terminal_width: u16,
     terminal_height: u16,
-    config: &'a Config,
+    config: &'a config::Config,
 }
 
 impl<'a> Display<'a> {
     /// Creates a new Display instance and enters the alternate screen mode.
     /// This function should be called at the beginning of the application.
     /// It initializes the terminal size and sets up the display.
-    pub fn open(config: &'a Config) -> crossterm::Result<Display<'a>> {
-        execute!(io::stdout(), terminal::EnterAlternateScreen, cursor::Hide)?;
+    pub fn open(config: &'a config::Config) -> crossterm::Result<Display<'a>> {
+        Display::setup_panic_hook();
+        
+        #[cfg(target_os = "linux")] {
+            terminal::enable_raw_mode()?; // Enable raw mode to capture input on linux
+            execute!(
+                io::stdout(),
+                event::EnableMouseCapture,
+            )?;
+        }        
+        execute!(
+            io::stdout(), 
+            terminal::EnterAlternateScreen,
+            cursor::Hide, 
+        )?;
         Ok(Display {
             terminal_width: terminal::size()?.0,
             terminal_height: terminal::size()?.1,
             config,
         })
     }
-
+    
     /// Closes the display and exits the alternate screen mode.
     /// This function should be called when the application is done using the terminal.
     /// It restores the terminal to its original state.
-    pub fn close(&self) -> crossterm::Result<()> {
-        execute!(io::stdout(), terminal::LeaveAlternateScreen)?;
+    pub fn close() -> crossterm::Result<()> {
+        #[cfg(target_os = "linux")] {
+            terminal::disable_raw_mode()?; // Disable raw mode
+            execute!(
+                io::stdout(),
+                event::DisableMouseCapture,    
+            )?;
+        }
+        execute!(
+            io::stdout(),
+            terminal::LeaveAlternateScreen, 
+            cursor::Show                     
+        )?;
         Ok(())
+    }
+    
+    fn setup_panic_hook() {
+        panic::set_hook(Box::new(move |info| {
+            #[allow(unused_must_use)] {
+                Display::close();
+                let message = format!("Unrecoverable error: {}", info);
+                utils::log(&message);
+                println!("{}", message);
+            }
+        }))
     }
 
     /// Writes a string to the terminal, centered based on the current terminal width.
@@ -101,32 +151,35 @@ impl<'a> Display<'a> {
 
         // Event loop
         loop {
-            if event::poll(Duration::from_millis(100))? {
-                if let Event::Key(KeyEvent { code, .. }) = event::read().unwrap() {
-                    match code {
-                        KeyCode::Up => {
-                            selected = (selected - 1) % options_len;
-                            self.draw_main_options(selected, options)?;
+            if event::poll(Duration::from_millis(3000))? {
+                match event::read().unwrap() {
+                    Event::Key(KeyEvent { code, .. }) => {
+                        match code {
+                            KeyCode::Up => {
+                                selected = (selected + options_len - 1) % options_len;
+                                self.draw_main_options(selected, options)?;
+                            }
+                            KeyCode::Down => {
+                                selected = (selected + 1) % options_len;
+                                self.draw_main_options(selected, options)?;
+                            }
+                            KeyCode::Enter => {
+                                key_pressed = KeyCode::Enter;
+                                break;
+                            }
+                            KeyCode::Esc => {
+                                key_pressed = KeyCode::Esc;
+                                break;
+                            }
+                            _ => {}
                         }
-                        KeyCode::Down => {
-                            selected = (selected + 1) % options_len;
-                            self.draw_main_options(selected, options)?;
-                        }
-                        KeyCode::Enter => {
-                            key_pressed = KeyCode::Enter;
-                            break;
-                        }
-                        KeyCode::Esc => {
-                            key_pressed = KeyCode::Esc;
-                            break;
-                        }
-                        _ => {}
                     }
-                }
-                if let Event::Resize(width, height) = event::read().unwrap() {
-                    self.terminal_width = width;
-                    self.terminal_height = height;
-                    self.draw_main_menu(selected, options)?;
+                    Event::Resize(width, height) => {
+                        self.terminal_width = width;
+                        self.terminal_height = height;
+                        self.draw_main_menu(selected, options)?;
+                    }
+                    _ => {}
                 }
             }
             execute!(io::stdout(), cursor::Hide)?;
@@ -147,16 +200,19 @@ impl<'a> Display<'a> {
                         let filename: &str = "modpack.zip";
                         let filepath: String =
                             format!("{}{}", &self.config.minecraft_folder, filename);
-                        let folders: &[&str] = FILES_TO_REMOVE;
+                        let folders: &[&str] = &self.config.files_to_overwrite
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<&str>>();
 
-                        utils::log(format!("modpack zip file path: {}", &filepath).as_str());
-                        utils::log(format!("files to remove path: {:?}", &folders).as_str());
+                        utils::log(&format!("modpack zip file path: {}", &filepath)).unwrap();
+                        utils::log(&format!("files to remove path: {:?}", &folders)).unwrap();
 
                         self.remove_files_page(&self.config.minecraft_folder, folders)?;
                         self.download_page(&filepath, &self.config.modpack_url)
-                            .unwrap_or_log_panic("Error when launching Download page");
+                            .log_expect("Error when launching Download page");
                         self.unzip_page(filename, &self.config.minecraft_folder)
-                            .unwrap_or_log_panic("Error when launching Unzip page");
+                            .log_expect("Error when launching Unzip page");
                     }
                     1 => {
                         // install the modloader (fabric/forge)
@@ -168,29 +224,75 @@ impl<'a> Display<'a> {
                             &self.config.magic_installer_folder, self.config.modloader_execname
                         );
 
-                        utils::log(format!("modloader zip path: {}", &filepath).as_str());
-                        utils::log(format!("modloader exec path: {}", &executable_path).as_str());
-                        utils::log(
-                            format!(
-                                "magic_installer folder path: {}",
-                                &self.config.magic_installer_folder
-                            )
-                            .as_str(),
-                        );
+                        utils::log(&format!("modloader zip path: {}", &filepath)).unwrap();
+                        utils::log(&format!("modloader exec path: {}", &executable_path)).unwrap();
+                        utils::log(&format!("magic_installer folder path: {}",&self.config.magic_installer_folder)).unwrap();
 
                         self.download_page(&filepath, &self.config.modloader_url)
-                            .unwrap_or_log_panic("Error when launching Download page");
+                            .log_expect("Error when launching Download page");
                         self.unzip_page(filename, &self.config.magic_installer_folder)
-                            .unwrap_or_log_panic("Error when launching Unzip page");
+                            .log_expect("Error when launching Unzip page");
                         self.executable_page(&executable_path)
-                            .unwrap_or_log_panic("Error when launching Executable page");
+                            .log_expect("Error when launching Executable page");
                     }
                     2 => {
                         // remove all files
-                        let folders = FILES_TO_REMOVE;
+                        let folders = &self.config.files_to_overwrite
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<&str>>();
                         self.remove_files_page(&self.config.minecraft_folder, folders)?;
+                    } // open config file
+                    3 => {
+                        let config_path: String = format!("{}magic_installer/config.txt", self.config.minecraft_folder);
+                        utils::log(&format!("Opening config file path: {}", &config_path)).unwrap();
+
+                        // Open the config file in the default text editor depending on the OS
+                        #[cfg(target_os = "windows")] {
+                            std::process::Command::new("notepad")
+                                .arg(&config_path)
+                                .spawn()
+                                .log_expect(&format!("Failed to open config file {}", &config_path));
+                        }
+                        #[cfg(target_os = "linux")] {
+                            // deactivate the raw mode to open the file
+                            terminal::disable_raw_mode()?;
+                            execute!(
+                                io::stdout(),
+                                event::DisableMouseCapture,
+                                cursor::Show                     
+                            )?;
+                            // run vim as a child process and wait for it to be closed
+                            // this is a blocking call
+                            std::process::Command::new("vim")
+                                .arg(&config_path)
+                                .spawn()
+                                .log_expect(&format!("Failed to open config file {}", &config_path))
+                                .wait()
+                                .log_expect("Failed to wait for vim to finish");
+
+                            // reenable the raw mode for the rest of the program
+                            terminal::enable_raw_mode()?;
+                            execute!(io::stdout(), 
+                                event::EnableMouseCapture,
+                                terminal::Clear(terminal::ClearType::All),
+                                cursor::Hide
+                            )?;
+
+                            execute!(io::stdout(), cursor::MoveTo(0, self.terminal_height / 2 - 1))?;
+                            self.write_centered("Appuyez sur n'importe quelle touche pour continuer")?;
+                        }
+                        #[cfg(not(any(target_os = "windows", target_os = "linux")))] {
+                            panic!("Unsupported OS");
+                        }
                     } // exit
-                    3 => return Ok(AppStatus::Exit),
+                    4 => {
+                        // clear the screen
+                        execute!(io::stdout(), terminal::Clear(terminal::ClearType::All))?;
+                        execute!(io::stdout(), cursor::MoveTo(0, 0))?;
+                        // exit the program
+                        return Ok(AppStatus::Exit);
+                    },
                     _ => {}
                 }
             }
@@ -200,13 +302,6 @@ impl<'a> Display<'a> {
 
     /// Draws the main menu of the application.
     /// This function takes the selected index and the options to display.
-    /// It uses the `crossterm` library to handle terminal output and styling.
-    /// It clears the current line and writes the title, author, controls, and bottom text.
-    /// The selected option is highlighted with a blue color and bold attribute.
-    /// It uses the `execute!` macro to perform terminal operations.
-    /// It returns a `crossterm::Result<()>` indicating success or failure.
-    /// This function is useful for displaying the main menu of the application.
-    /// It also handles the terminal size and padding for centering the text.
     fn draw_main_menu(&self, selected: usize, options: &[&str]) -> crossterm::Result<()> {
         let title: &str = MAIN_TITLE;
         let author: String = format!("{} - {}", AUTHOR, VERSION);
@@ -216,23 +311,29 @@ impl<'a> Display<'a> {
         let first_line = 100; //title.lines().next().unwrap(); // 100 is the length of the first line of the title
         let padding = (self.terminal_width.saturating_sub(first_line) / 2) as usize;
         let mut stdout = io::stdout();
-
-        execute!(
-            stdout,
-            terminal::Clear(terminal::ClearType::All),
-            cursor::Hide
-        )?;
+        
+        // disable the raw mode to print the title for unix otherwise it will be messed up because of unicode characters
+        #[cfg(target_os = "linux")] {
+            terminal::disable_raw_mode()?;
+        }
+        
+        execute!(stdout, terminal::Clear(terminal::ClearType::All), cursor::Hide)?;
         execute!(stdout, cursor::MoveTo(0, 0))?;
         title.lines().for_each(|line| {
-            queue!(
-                stdout,
-                Print(" ".repeat(padding)),
-                PrintStyledContent(line.with(Color::Blue)),
-                Print("\n")
-            )
-            .unwrap();
+                queue!(
+                    stdout,
+                    Print(" ".repeat(padding)),
+                    PrintStyledContent(line.with(Color::Blue)),
+                    Print("\n")
+                )
+                .unwrap();
         });
         stdout.flush()?;
+        
+        // reenable the raw mode for the rest of the program
+        #[cfg(target_os = "linux")] {
+            terminal::enable_raw_mode()?;
+        }
 
         execute!(stdout, cursor::MoveTo(0, 15))?;
         self.write_stylized_centered(author.as_str().with(Color::Blue).attribute(Attribute::Dim))?;
@@ -247,12 +348,6 @@ impl<'a> Display<'a> {
 
     /// Draw the main options of the menu, with the selected option highlighted.
     /// This function takes the selected index and the options to display.
-    /// It uses the `crossterm` library to handle terminal output and styling.
-    /// It clears the current line and writes the options to the terminal.
-    /// The selected option is highlighted with a green color and bold attribute.
-    /// It uses the `execute!` macro to perform terminal operations.
-    /// It returns a `crossterm::Result<()>` indicating success or failure.
-    /// This function is useful for displaying a list of options in the main menu.
     pub fn draw_main_options(&self, selected: usize, options: &[&str]) -> crossterm::Result<()> {
         let mut stdout = io::stdout();
         execute!(stdout, cursor::MoveTo(0, 4))?;
@@ -399,7 +494,7 @@ impl<'a> Display<'a> {
 
         self.write_centered("Lancement de l'installateur du Modloader")?; //lang
         launch_executable(filepath)
-            .unwrap_or_log_panic("Error when launching modloader executable");
+            .log_expect("Error when launching modloader executable");
 
         execute!(
             stdout,
@@ -430,20 +525,20 @@ impl<'a> Display<'a> {
         folders.iter().for_each(|folder| {
             let folderpath = format!("{}{}", base_folderpath, folder);
             match remove_folder(&folderpath) {
-                FileStatus::Exists => {}
-                FileStatus::DoesntExists => {
+                FileStatus::Ok => {}
+                FileStatus::NoChange => {
                     execute!(
                         stdout,
                         terminal::Clear(terminal::ClearType::All),
                         cursor::MoveTo(0, height - 2)
                     )
-                    .unwrap_or_log_panic("Error when removing modpack files");
+                    .log_expect("Error when removing modpack files");
 
                     self.write_centered("Fichier déja supprimé").unwrap(); //lang
                     sleep(Duration::from_millis(250));
                 }
-                FileStatus::Error => {
-                    utils::panic_log(String::from("Error when trying to remove modpack folder"));
+                FileStatus::Error(e) => {
+                    utils::panic_log(&format!("Error when trying to remove modpack folder: {}", e));
                 }
             };
         });

@@ -1,0 +1,8 @@
+modpack_url=baltazar
+
+modloader_url=test1 dsds
+
+modloader_execname=trucmuche
+dsqdsqd
+folders_to_overwrite=mods,config,defaultconfig,kubejs,scripts,panoramas
+

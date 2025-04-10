@@ -4,10 +4,10 @@ version = "2.2.0"
 edition = "2021"
 
 [dependencies]
+chrono = "0.4.40"
 crossterm = "0.26.1"
 regex = "1.11.1"
 ureq = "2.7.1"
-zip = "2.6.1"
 
 [build-dependencies]
 winres = "0.1.12"

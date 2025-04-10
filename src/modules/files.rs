@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use crate::modules::{utils,config,app};
 use std::fmt;
 use std::fs::{create_dir_all, File};
 use std::io::{self, Read, Write};
@@ -70,21 +72,24 @@ pub fn download_file(path: &str, url: &str, tx: mpsc::Sender<DownloadStatus>) ->
 //%-----------------------------------------------------------------//
 #[allow(dead_code)]
 pub enum FileStatus {
-    DoesntExists,
-    Exists,
-    Error,
+    Ok,
+    NoChange,
+    Error(io::Error),
 }
 
 /// Check if a file exists, if not, create it in the path specified.
+/// Returns FileStatus::Ok if the file was created
+/// FileStatus::NoChange if the file existed 
+/// FileStatus::Error if the file can't be created
 pub fn create_folder_if_not_exists(path: &str) -> FileStatus {
     if !Path::new(path).exists() {
         let folder = create_dir_all(path);
         match folder {
-            Ok(_) => return FileStatus::DoesntExists,
-            Err(_) => return FileStatus::Error,
+            Ok(_) => return FileStatus::Ok,
+            Err(e) => return FileStatus::Error(e),
         }
     }
-    FileStatus::Exists
+    FileStatus::NoChange
 }
 //%-----------------------------------------------------------------//
 //%--                                                               //
@@ -100,11 +105,11 @@ pub fn create_file_if_not_exists(path: &str) -> FileStatus {
     if !Path::new(path).exists() {
         let file = File::create(path);
         match file {
-            Ok(_) => return FileStatus::DoesntExists,
-            Err(_) => return FileStatus::Error,
+            Ok(_) => return FileStatus::Ok,
+            Err(e) => return FileStatus::Error(e),
         }
     }
-    FileStatus::Exists
+    FileStatus::NoChange
 }
 //%-----------------------------------------------------------------//
 //%--                                                               //
@@ -140,19 +145,62 @@ pub fn append_to_file(path: &str, content: &str) -> Result<(), io::Error> {
 //%-----------------------------------------------------------------//
 /// Unzip a file to a folder
 /// extracts the `filename` in the `folderpath`
-pub fn unzip_file(filename: &str, folderpath: &str) -> Result<(), io::Error> {
-    let mut cmd = Command::new("tar");
-    let folder_path = Path::new(folderpath);
-    cmd.current_dir(folder_path);
-    cmd.arg("-xf").arg(filename);
+pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Error> {
+    utils::log(&format!("Unzipping file: {}, into: {}", archive_file, target_folder)).unwrap();
+    
+    let output_file_path = format!("{}/unzip_output.txt", target_folder);
+    // check if the archive doesn't ends with .tar
+    if !archive_file.ends_with(".tar") {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Only .tar archives are supported",
+        ));
+    }
 
+    //check if the target folder exists
+    create_folder_if_not_exists(target_folder);
+    //check if the archive file exists
+    if !Path::new(archive_file).exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("The archive file {} does not exist", archive_file),
+        ));
+    }
+
+
+    let mut cmd = Command::new(""); // Initialize with an empty command
+    let mut output_file = File::create(&output_file_path)?;
+    cmd.stdout(output_file.try_clone()?);
+    cmd.stderr(output_file.try_clone()?);
+    cmd = Command::new("tar");
+    cmd.arg("-xf").arg(archive_file);
+    cmd.arg("-C").arg(target_folder);
+    writeln!(output_file, "{}", format!("tar -xf {} -C {}", &archive_file, &target_folder))?;
+
+    // write the current folder of cmd in the output_file:
+    writeln!(output_file, "Current folder: {:?}", std::env::current_dir()?)?;
+
+    // run the command and wait for it to finish
+    // if the command fails, write the error in the output file
+    // and return an error
+    // if the command succeeds, write a success message in the output file
+    // and return Ok(())
     match cmd.spawn() {
         Ok(mut child) => {
-            let status = child.wait().expect("Failed to wait for the commands");
+            let status = child.wait()?;
             if status.success() {
+                utils::log("Unzipped successfully").unwrap();
                 Ok(())
             } else {
-                Err(io::Error::new(io::ErrorKind::Other, "Failed to unzip file"))
+            let message = format!(
+                "Failed to unzip the file, error code: {}, output:{}",
+                status.code().unwrap_or(-1),
+                // Read the output file
+                std::fs::read_to_string(&output_file_path).unwrap_or_else(|_| {
+                    String::from("Failed to read the output file")
+                })
+            );
+            Err(io::Error::new(io::ErrorKind::Other, message))
             }
         }
         Err(err) => Err(err),
@@ -161,27 +209,29 @@ pub fn unzip_file(filename: &str, folderpath: &str) -> Result<(), io::Error> {
 
 //%-----------------------------------------------------------------//
 //%--                                                               //
-//%-- #DERIVED:                                                     //
-//%-- Removes a folder, returns FileStatus::Error if the folder     //
-//%-- can't be                                                      //
+//%-- # DERIVED:                                                    //
+//%--                                                               //
+//%-- Remove a folder, returns FileStatus::Ok if the folder was     //
 //%-- removed,                                                      //
-//%-- FileStatus::DoesntExists if the file doesn't exists and       //
-//%-- FileStatus::Exists if the file was removed                    //
+//%-- FileStatus::NoChange if the folder doesn't exists and         //
+//%-- FileStatus::Error if the folder can't be removed              //
 //%--                                                               //
 //%-----------------------------------------------------------------//
 /// Remove a folder, returns FileStatus::Error if the folder can't be removed,
-/// FileStatus::DoesntExists if the file doesn't exists and
+/// FileStatus::Ok if the file doesn't exists and
 /// FileStatus::Exists if the file was removed
 /// the folder is specified by the path
 pub fn remove_folder(path: &str) -> FileStatus {
+    utils::log(&format!("Removing folder: {}", path)).unwrap();
+
     if Path::new(path).exists() {
         let folder = std::fs::remove_dir_all(path);
         match folder {
-            Ok(_) => return FileStatus::Exists,
-            Err(_) => return FileStatus::Error,
+            Ok(_) => return FileStatus::Ok,
+            Err(e) => return FileStatus::Error(e),
         }
     }
-    FileStatus::DoesntExists
+    FileStatus::NoChange
 }
 
 //%-----------------------------------------------------------------//
@@ -222,6 +272,7 @@ enum ModloaderExecutableType {
 impl ModloaderExecutableType {
     /// Get the type of the modloader executable from the filename.
     fn from_filename(filename: &str) -> Result<ModloaderExecutableType, ExecutableError> {
+        utils::log(&format!("Running modloader: {}", filename)).unwrap();
         if filename.ends_with(".jar") {
             return Ok(ModloaderExecutableType::Jar);
         } else if filename.ends_with(".exe") {
@@ -287,10 +338,26 @@ mod tests {
     #[allow(unused_imports)]
     use crate::modules::{config, files, app, utils};
 
+    //%-----------------------------------------------------------------//
+    //%--                                                               //
+    //%-- TEST: Archive unzipping                                       //
+    //%-- Unzips "archive.zip" in ./tests/assets folders and reads the  //
+    //%-- content of the unzipped file                                  //
+    //%--                                                               //
+    //%--     Success conditions:                                       //
+    //%-- the program doesn't panic and the extracted file content      //
+    //%-- matches the expected value.                                   //
+    //%--                                                               //
+    //%--     Failure conditions:                                       //
+    //%-- the program panics or the content of the extracted file       //
+    //%-- doesn't match the expected value.                             //
+    //%--                                                               //
+    //%-----------------------------------------------------------------//
     #[test]
     fn test_unzip_file() {
-        let filepath = "./tests/assets/archive.zip";
+        let filepath = "./tests/assets/archive.tar";
         let extracted_file = "./tests/assets/unzipped.txt";
+        let target_folder = "./tests/assets";
 
         // Remove the extracted file if it exists
         if Path::new(extracted_file).exists() {
@@ -299,8 +366,8 @@ mod tests {
         }
 
         // Unzip the file
-        let result = unzip_file(filepath, "./tests/assets");
-        assert!(result.is_ok(), "Failed to unzip the file");
+        let result = unzip_file(filepath, target_folder);
+        assert!(&result.is_ok(), "Failed to unzip the file: {}", result.unwrap_err());
         
         // Check if the extracted file exists
         assert!(Path::new(extracted_file).exists(), "The extracted file does not exist");
@@ -311,7 +378,11 @@ mod tests {
         file.read_to_string(&mut content).expect("Failed to read the extracted file");
 
         // Check the content of the extracted file
-        let content = "I am from a zipped file";
-        assert_eq!(content, "", "The content of the extracted file is incorrect");
+        let expected_content = "I am from a zipped file";
+        assert_eq!(content, expected_content, "The content of the extracted file is incorrect");
+
+        // Clean up the extracted file
+        let result = std::fs::remove_file(extracted_file);
+        assert!(result.is_ok(), "Test passed but failed to remove the extracted file");
     }
 }

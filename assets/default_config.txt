@@ -1,13 +1,3 @@
-# Minecraft Magic Installer
-
-This is a simple program that will install all the mods you need to play on a private server, you can change the modpack and mod loader in the `config` file.
-
-## Config
-
-The config.txt file is a simple text file that contains the following:
-(default config)
-
-```py
 ###############
 # CONFIG FILE #
 ###############
@@ -28,27 +18,3 @@ modloader_execname=fabric-installer.jar
 # for example, you'd want to overwrite the mods folder to not merge with mods that were there before, on the other hand, you wouldn't like
 # to delete all your texturepacks/shaderpacks and replace them with the one included with the modpack
 folders_to_overwrite=mods,config,defaultconfig,kubejs,scripts,panoramas
-```
-
-## Overriding the default minecraft folder
-
-On Windows, the default minecraft folder is located in `C:\Users\<username>\AppData\Roaming\.minecraft` / `%appdata%\.minecraft`
-On Linux, the default minecraft folder is located in `~/.minecraft`
-
-You can specify a different folder by setting the `MINECRAFT_DIR` environment variable to the path of the folder you want to use.
-You can use environnement variables, for example: `$home/my_folder/.minecraft` is valid.
-
-## changelog
-
-### 1.0.0
-
-- Initial release
-
-### 2.1.0
-
-- Added support for dropbox zip files
-
-### 2.2.0
-
-- Added UNIX support.
-- Added support for modifiable config file.
