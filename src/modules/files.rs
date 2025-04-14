@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use crate::modules::{utils,config,app};
+use crate::modules::{app, config, utils};
 use std::fmt;
 use std::fs::{create_dir_all, File};
 use std::io::{self, Read, Write};
@@ -79,7 +79,7 @@ pub enum FileStatus {
 
 /// Check if a file exists, if not, create it in the path specified.
 /// Returns FileStatus::Ok if the file was created
-/// FileStatus::NoChange if the file existed 
+/// FileStatus::NoChange if the file existed
 /// FileStatus::Error if the file can't be created
 pub fn create_folder_if_not_exists(path: &str) -> FileStatus {
     if !Path::new(path).exists() {
@@ -146,8 +146,12 @@ pub fn append_to_file(path: &str, content: &str) -> Result<(), io::Error> {
 /// Unzip a file to a folder
 /// extracts the `filename` in the `folderpath`
 pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Error> {
-    utils::log(&format!("Unzipping file: {}, into: {}", archive_file, target_folder)).unwrap();
-    
+    utils::log(&format!(
+        "Unzipping file: {}, into: {}",
+        archive_file, target_folder
+    ))
+    .unwrap();
+
     let output_file_path = format!("{}/unzip_output.txt", target_folder);
     // check if the archive doesn't ends with .tar
     if !archive_file.ends_with(".tar") {
@@ -167,7 +171,6 @@ pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Err
         ));
     }
 
-
     let mut cmd = Command::new(""); // Initialize with an empty command
     let mut output_file = File::create(&output_file_path)?;
     cmd.stdout(output_file.try_clone()?);
@@ -175,10 +178,18 @@ pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Err
     cmd = Command::new("tar");
     cmd.arg("-xf").arg(archive_file);
     cmd.arg("-C").arg(target_folder);
-    writeln!(output_file, "{}", format!("tar -xf {} -C {}", &archive_file, &target_folder))?;
+    writeln!(
+        output_file,
+        "{}",
+        format!("tar -xf {} -C {}", &archive_file, &target_folder)
+    )?;
 
     // write the current folder of cmd in the output_file:
-    writeln!(output_file, "Current folder: {:?}", std::env::current_dir()?)?;
+    writeln!(
+        output_file,
+        "Current folder: {:?}",
+        std::env::current_dir()?
+    )?;
 
     // run the command and wait for it to finish
     // if the command fails, write the error in the output file
@@ -192,15 +203,14 @@ pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Err
                 utils::log("Unzipped successfully").unwrap();
                 Ok(())
             } else {
-            let message = format!(
-                "Failed to unzip the file, error code: {}, output:{}",
-                status.code().unwrap_or(-1),
-                // Read the output file
-                std::fs::read_to_string(&output_file_path).unwrap_or_else(|_| {
-                    String::from("Failed to read the output file")
-                })
-            );
-            Err(io::Error::new(io::ErrorKind::Other, message))
+                let message = format!(
+                    "Failed to unzip the file, error code: {}, output:{}",
+                    status.code().unwrap_or(-1),
+                    // Read the output file
+                    std::fs::read_to_string(&output_file_path)
+                        .unwrap_or_else(|_| { String::from("Failed to read the output file") })
+                );
+                Err(io::Error::new(io::ErrorKind::Other, message))
             }
         }
         Err(err) => Err(err),
@@ -326,7 +336,7 @@ fn launch_executable_jar(filepath: &str, args: Vec<&str>) -> Result<(), Executab
 //%-- End of SP-FN-003                                              //
 //%-----------------------------------------------------------------//
 
-//%-----------------------------------------------------------------//
+//%-------------------------------------app-------------------------//
 //%--                                                               //
 //%-- UNIT TESTS:                                                   //
 //%--                                                               //
@@ -336,7 +346,7 @@ fn launch_executable_jar(filepath: &str, args: Vec<&str>) -> Result<(), Executab
 mod tests {
     use super::*;
     #[allow(unused_imports)]
-    use crate::modules::{config, files, app, utils};
+    use crate::modules::{app, config, files, utils};
 
     //%-----------------------------------------------------------------//
     //%--                                                               //
@@ -367,22 +377,36 @@ mod tests {
 
         // Unzip the file
         let result = unzip_file(filepath, target_folder);
-        assert!(&result.is_ok(), "Failed to unzip the file: {}", result.unwrap_err());
-        
+        assert!(
+            &result.is_ok(),
+            "Failed to unzip the file: {}",
+            result.unwrap_err()
+        );
+
         // Check if the extracted file exists
-        assert!(Path::new(extracted_file).exists(), "The extracted file does not exist");
+        assert!(
+            Path::new(extracted_file).exists(),
+            "The extracted file does not exist"
+        );
 
         // Read the content of the extracted file
         let mut file = File::open(extracted_file).unwrap();
         let mut content = String::new();
-        file.read_to_string(&mut content).expect("Failed to read the extracted file");
+        file.read_to_string(&mut content)
+            .expect("Failed to read the extracted file");
 
         // Check the content of the extracted file
         let expected_content = "I am from a zipped file";
-        assert_eq!(content, expected_content, "The content of the extracted file is incorrect");
+        assert_eq!(
+            content, expected_content,
+            "The content of the extracted file is incorrect"
+        );
 
         // Clean up the extracted file
         let result = std::fs::remove_file(extracted_file);
-        assert!(result.is_ok(), "Test passed but failed to remove the extracted file");
+        assert!(
+            result.is_ok(),
+            "Test passed but failed to remove the extracted file"
+        );
     }
 }

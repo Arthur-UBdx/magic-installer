@@ -17,7 +17,6 @@ const WIN_VARIABLES_REGEX: &str = r"%([A-z]+)%";
 #[cfg(target_os = "linux")]
 const LINUX_VARIABLES_REGEX: &str = r"\$([A-z]+)";
 
-
 /// This trait is used to unwrap a Result and log the error if it occurs.
 pub trait LogExcept<T> {
     fn log_expect(self, message: &str) -> T;
@@ -67,23 +66,33 @@ pub fn log(message: &str) -> Result<(), std::io::Error> {
     if cfg!(test) {
         filepath = String::from("tests/results/tests.log")
     } else {
-        match files::create_folder_if_not_exists(&format!("{}magic_installer/logs", config::get_minecraft_folder())) {
+        match files::create_folder_if_not_exists(&format!(
+            "{}magic_installer/logs",
+            config::get_minecraft_folder()
+        )) {
             files::FileStatus::Error(e) => {
                 return Err(e);
             }
             _ => {}
         }
-        filepath = format!("{}magic_installer/logs/log-{}.txt", config::get_minecraft_folder(), format_date());
+        filepath = format!(
+            "{}magic_installer/logs/log-{}.txt",
+            config::get_minecraft_folder(),
+            format_date()
+        );
     }
 
-    files::append_to_file(&filepath,&format!("{}: {}\n", format_date(), message))?;
+    files::append_to_file(&filepath, &format!("{}: {}\n", format_date(), message))?;
     Ok(())
 }
 
 /// Panics and logs the message to the debug file.
 pub fn panic_log(message: &str) -> ! {
     log(message).unwrap_or_else(|e| {
-        panic!("An error occured when trying to log the error message : {}\nmessage: {}", e, message);
+        panic!(
+            "An error occured when trying to log the error message : {}\nmessage: {}",
+            e, message
+        );
     });
     panic!("{}", message);
 }
@@ -102,7 +111,8 @@ pub fn panic_log(message: &str) -> ! {
 /// The function will return the expanded path as a string.
 #[allow(unreachable_patterns)]
 pub fn expand_variables(path: String) -> String {
-    #[cfg(target_os = "windows")] {
+    #[cfg(target_os = "windows")]
+    {
         // captures the variables in the path string
         let caps = match regex::Regex::new(WIN_VARIABLES_REGEX) {
             Ok(regex) => regex,
@@ -118,7 +128,8 @@ pub fn expand_variables(path: String) -> String {
         }
         expanded_path
     }
-    #[cfg(target_os = "linux")] {
+    #[cfg(target_os = "linux")]
+    {
         let caps = match regex::Regex::new(LINUX_VARIABLES_REGEX) {
             Ok(regex) => regex,
             Err(e) => panic_log(&format!("Error creating linux regex: {}", e)),
@@ -133,7 +144,8 @@ pub fn expand_variables(path: String) -> String {
         }
         expanded_path
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))] {
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    {
         panic!("Unsupported OS");
     }
 }
@@ -149,7 +161,7 @@ pub fn expand_variables(path: String) -> String {
 /// This function is used to create a timestamp for the log file.
 fn format_date() -> String {
     let now = chrono::Local::now();
-    let date = now.format("%Y-%m-%d_%H-%M-%S").to_string(); 
+    let date = now.format("%Y-%m-%d_%H-%M-%S").to_string();
     date
 }
 //%-----------------------------------------------------------------//
@@ -248,13 +260,16 @@ mod tests {
         // The tests have to be run for each OS type
         env::set_var("HOME", "/test/home");
         let input: String;
-        #[cfg(target_os = "windows")] {
+        #[cfg(target_os = "windows")]
+        {
             input = String::from("%HOME%/magic_installer");
         }
-        #[cfg(target_os = "linux")] {
+        #[cfg(target_os = "linux")]
+        {
             input = String::from("$HOME/magic_installer");
         }
-        #[cfg(not(any(target_os = "windows", target_os = "linux")))] {
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+        {
             panic!("Unsupported OS");
         }
 
@@ -312,13 +327,12 @@ mod tests {
                 std::fs::remove_file(&log_filepath).unwrap_or_else(|e| {
                     panic!("Impossible de supprimer le fichier de log : {}", e);
                 });
-    
+
                 files::append_to_file(&log_filepath, &new_file_content).unwrap_or_else(|e| {
                     panic!("Impossible d'écrire dans le fichier de log : {}", e);
                 });
             }
         }
-
 
         // try to log the message
         utils::log(&message).log_expect(&format!("Error when logging the message : {}", &message));
@@ -355,8 +369,11 @@ mod tests {
     //%-----------------------------------------------------------------//
     #[test]
     fn test_remove_comments() {
-        let commented_string: String = String::from(include_str!("../../assets/default_config.txt"));
-        let expected_string: String = String::from(include_str!("../../tests/assets/default_config_no_comments.txt"));
+        let commented_string: String =
+            String::from(include_str!("../../assets/default_config.txt"));
+        let expected_string: String = String::from(include_str!(
+            "../../tests/assets/default_config_no_comments.txt"
+        ));
 
         // Remove the comments from the string
         let result = utils::remove_comments(commented_string);
@@ -387,17 +404,19 @@ mod tests {
     fn test_parse_hashmap() {
         let input: String = String::from(include_str!("../../tests/assets/parse_hashmap.txt"));
         // Parse the input string into a HashMap
-        let output: HashMap<String, String> = utils::parse_hashmap(
-            &input,
-            "\n",
-            "=",
-        );
+        let output: HashMap<String, String> = utils::parse_hashmap(&input, "\n", "=");
 
         let mut expected_output: HashMap<String, String> = HashMap::new();
         expected_output.insert(String::from("modpack_url"), String::from("baltazar"));
         expected_output.insert(String::from("modloader_url"), String::from("test1 dsds"));
-        expected_output.insert(String::from("modloader_execname"), String::from("trucmuche"));
-        expected_output.insert(String::from("folders_to_overwrite"), String::from("mods,config,defaultconfig,kubejs,scripts,panoramas"));
+        expected_output.insert(
+            String::from("modloader_execname"),
+            String::from("trucmuche"),
+        );
+        expected_output.insert(
+            String::from("folders_to_overwrite"),
+            String::from("mods,config,defaultconfig,kubejs,scripts,panoramas"),
+        );
 
         // and compare it to the expected output
         assert_eq!(output, expected_output);

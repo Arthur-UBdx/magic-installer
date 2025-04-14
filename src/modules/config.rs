@@ -29,13 +29,16 @@ pub fn get_minecraft_folder() -> String {
         path = modules::utils::expand_variables(override_path)
     } else {
         // else use the default path based on the OS
-        #[cfg(target_os = "windows")] {
+        #[cfg(target_os = "windows")]
+        {
             path = modules::utils::expand_variables(String::from(MINECRAFT_FOLDER_WINDOWS));
         }
-        #[cfg(target_os = "linux")] {
+        #[cfg(target_os = "linux")]
+        {
             path = modules::utils::expand_variables(String::from(MINECRAFT_FOLDER_LINUX));
         }
-        #[cfg(not(any(target_os = "windows", target_os = "linux")))] {
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+        {
             panic!("Unsupported OS");
         }
     }
