@@ -52,6 +52,18 @@ pub fn get_minecraft_folder() -> String {
 }
 
 // ---- Config ---- //
+//%-----------------------------------------------------------------//
+//%--                                                               //
+//%-- ## SP-CF-001                                                  //
+//%--                                                               //
+//%--   La configuration doit contenir les informations suivantes:  //
+//%--     - Lien HTTP vers le serveur de téléchargement du modpack  //
+//%--     - Lien HTTP vers le serveur de téléchargement du modloader//
+//%--     - Nom de l'exécutable d'installation du modloader         //
+//%--     - Dossier de mods à remplacer si existant sinon           //
+//%--           créer/supprimer                                     //
+//%--                                                               //
+//%-----------------------------------------------------------------//
 #[derive(Debug)]
 pub struct Config {
     pub modpack_url: String,
@@ -69,6 +81,18 @@ impl Config {
 
         utils::log(&format!("LOG: Config:\n{:?}", config)).unwrap();
 
+        //%-----------------------------------------------------------------//
+        //%--                                                               //
+        //%-- ## SP-CF-001                                                  //
+        //%--                                                               //
+        //%--   La configuration doit contenir les informations suivantes:  //
+        //%--     - Lien HTTP vers le serveur de téléchargement du modpack  //
+        //%--     - Lien HTTP vers le serveur de téléchargement du modloader//
+        //%--     - Nom de l'exécutable d'installation du modloader         //
+        //%--     - Dossier de mods à remplacer si existant sinon           //
+        //%--           créer/supprimer                                     //
+        //%--                                                               //
+        //%-----------------------------------------------------------------//
         Config {
             modpack_url: config
                 .get("modpack_url")
@@ -91,6 +115,25 @@ impl Config {
             minecraft_folder: get_minecraft_folder(),
             magic_installer_folder: format!("{}{}", get_minecraft_folder(), "magic_installer/"),
         }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        //%-----------------------------------------------------------------//
+        //%--                                                               //
+        //%-- ## SP-CF-001                                                  //
+        //%--                                                               //
+        //%--   La configuration doit contenir les informations suivantes:  //
+        //%--     - Lien HTTP vers le serveur de téléchargement du modpack  //
+        //%--     - Lien HTTP vers le serveur de téléchargement du modloader//
+        //%--     - Nom de l'exécutable d'installation du modloader         //
+        //%--     - Dossier de mods à remplacer si existant sinon           //
+        //%--           créer/supprimer                                     //
+        //%--                                                               //
+        //%-----------------------------------------------------------------//
+        // if any of the fields are empty, return false
+        !(self.modpack_url.is_empty()
+            || self.modloader_url.is_empty()
+            || self.modloader_execname.is_empty())
     }
 }
 

@@ -2,6 +2,7 @@
 use crate::modules::{app, config, files};
 
 use std::collections::HashMap;
+use once_cell::sync::Lazy;
 //%-----------------------------------------------------------------//
 //%--                                                               //
 //%-- ## SP-PT-001                                                  //
@@ -26,12 +27,12 @@ pub trait LogExcept<T> {
 /// It takes a Result<T, E> and returns T if the result is Ok.
 /// If the result is an Err, it logs the error message and panics.
 /// This is useful for handling errors in a consistent way throughout the application.
-impl<T, E: std::fmt::Debug> LogExcept<T> for Result<T, E> {
+impl<T, E: std::fmt::Display> LogExcept<T> for Result<T, E> {
     fn log_expect(self, message: &str) -> T {
         match self {
             Ok(value) => value,
             Err(error) => {
-                panic_log(&format!("Error: {:?}\n\nMessage: {}", error, message));
+                panic_log(&format!("Error: {}\n\nMessage: {}", error, message));
                 // panic!();
             }
         }
@@ -159,10 +160,13 @@ pub fn expand_variables(path: String) -> String {
 /// Formats the date as a string in the format YYYY-MM-DD_HH:MM:SS
 /// The function will return the formatted date as a string.
 /// This function is used to create a timestamp for the log file.
-fn format_date() -> String {
+static FIRST_CALL_TIME: Lazy<String> = Lazy::new(|| {
     let now = chrono::Local::now();
-    let date = now.format("%Y-%m-%d_%H-%M-%S").to_string();
-    date
+    let logtime = now.format("%Y-%m-%d_%H-%M-%S");
+    logtime.to_string()
+});
+fn format_date() -> String {
+    FIRST_CALL_TIME.to_string()   
 }
 //%-----------------------------------------------------------------//
 //%--                                                               //

@@ -47,8 +47,8 @@ et Linux.
 La configuration doit contenir les informations suivantes:
     - Lien HTTP vers le serveur de téléchargement du modpack
     - Lien HTTP vers le serveur de téléchargement du modloader
+    - Nom de l'exécutable d'installation du modloader
     - Dossier de mods à remplacer si existant sinon créer / supprimer
-    - Dossier de mods à fusionner si existant
 
 ## SP-CF-002
 

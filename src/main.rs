@@ -83,7 +83,8 @@ fn main() -> crossterm::Result<()> {
     // et on la parse    
     config = Config::from(&utils::remove_comments(config_string));
 
-    let mut display = Display::open(&config)?;
+
+    let mut display = Display::open(config)?;
     loop {
         if let AppStatus::Exit = display.main_menu()? {
             break;

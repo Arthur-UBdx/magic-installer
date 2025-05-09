@@ -1,4 +1,4 @@
-modpack_url=https://www.dropbox.com/sh/idok2pnzrxvackh/AAAh4HgNQk_RH16xHDX6nBa8a?dl=1
-modloader_url=https://www.dropbox.com/sh/zibj4mm03dqjqaq/AAAqrab7I3iKG_C61iBQHp3Ka?dl=1
-modloader_execname=fabric-installer.jar
+modpack_url=
+modloader_url=
+modloader_execname=.jar
 folders_to_overwrite=mods,config,defaultconfig,kubejs,scripts,panoramas

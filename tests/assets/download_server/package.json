@@ -1,0 +1,14 @@
+{
+    "name": "magic-installer-test-webserver",
+    "version": "1.0.0",
+    "description": "A simple webserver to test the magic-installer web functions.",
+    "main": "server.js",
+    "scripts": {
+        "run": "node server.js"
+    },
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "express": "^5.1.0"
+    }
+}

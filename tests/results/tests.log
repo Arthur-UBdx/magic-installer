@@ -1,24 +1,26 @@
-
-2025-04-09_14-57-01: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-57-01: Unzipped successfully2025-04-09_14-57-23: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-57-23: Unzipped successfully2025-04-09_14-57-26: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-57-26: Unzipped successfully2025-04-09_14-57-28: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-57-28: Unzipped successfully
-2025-04-09_14-57-46: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-57-46: Unzipped successfully2025-04-09_14-57-57: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-57-57: Unzipped successfully2025-04-09_14-58-38: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_14-58-38: Unzipped successfully2025-04-09_15-00-16: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-09_15-00-16: Unzipped successfully
-2025-04-09_18-45-35: Unzipped successfully
-2025-04-09_18-46-25: Unzipped successfully
-2025-04-09_18-46-46: Unzipped successfully
-2025-04-09_18-46-52: Unzipped successfully
-2025-04-09_18-54-30: Unzipped successfully
-2025-04-10_08-15-05: Unzipped successfully
-2025-04-10_08-22-25: Unzipped successfully
-2025-04-10_22-43-10: Unzipped successfully
-2025-04-10_23-00-21: Unzipped successfully2025-04-11_00-42-52: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets
-2025-04-11_00-42-52: Unzipped successfully
-2025-04-11_00-56-34: Unzipped successfully
-2025-04-11_00-56-45: Unzipping file: ./tests/assets/archive.tar, into: ./tests/assets2025-04-11_00-56-45: This is a test log message
-2025-04-11_00-56-45: Unzipped successfully
+2025-04-17_23-04-25: Unzipping file: ./tests/assets/archive.tar, into: ./tests/temp
+2025-04-17_23-04-25: Downloading file: http://localhost:2560/download
+2025-04-17_23-04-25: Unzipped successfully
+2025-04-17_23-04-25: Download complete, file saved to: ./tests/temp/downloaded_file.txt
+2025-04-17_23-04-25: Downloading file: http://localhost:2560/404
+2025-04-17_23-04-25: Error downloading file: http://localhost:2560/404: status code 404
+2025-04-23_13-14-34: Unzipping file: ./tests/assets/archive.tar, into: ./tests/temp
+2025-04-23_13-14-34: Unzipped successfully
+2025-04-23_13-14-35: Download complete, file saved to: ./tests/temp/downloaded_file.txt
+2025-04-23_13-14-35: Downloading file: http://localhost:2560/404
+2025-04-23_13-14-35: Error downloading file: http://localhost:2560/404: status code 404
+2025-05-08_15-49-26: Unzipping file: ./tests/assets/archive.tar.gz, into: ./tests/temp
+2025-05-08_15-49-46: Unzipping file: ./tests/assets/archive.tar.gz, into: ./tests/temp
+2025-05-08_15-51-01: Unzipping file: ./tests/assets/archive.tar.gz, into: ./tests/temp
+2025-05-08_15-51-02: Download complete, file saved to: ./tests/temp/downloaded_file.txt
+2025-05-08_15-51-02: Downloading file: http://localhost:2560/404
+2025-05-08_15-51-02: Error downloading file: http://localhost:2560/404: status code 404
+2025-05-08_15-51-16: Unzipping file: ./tests/assets/archive.tar.gz, into: ./tests/temp
+2025-05-08_15-51-16: Unzipped successfully
+2025-05-08_15-51-16: Download complete, file saved to: ./tests/temp/downloaded_file.txt
+2025-05-08_15-51-16: Downloading file: http://localhost:2560/404
+2025-05-08_15-51-16: Error downloading file: http://localhost:2560/404: status code 404
+2025-05-08_16-04-41: Downloading file: http://localhost:2560/download
+2025-05-08_16-04-41: Unzipping file: ./tests/assets/archive.tar.gz, into: ./tests/temp2025-05-08_16-04-41: This is a test log message
+2025-05-08_16-04-41: Error downloading file: http://localhost:2560/download: Connection Failed: Connect error: Connection refused (os error 111)
+2025-05-08_16-04-41: Unzipped successfully

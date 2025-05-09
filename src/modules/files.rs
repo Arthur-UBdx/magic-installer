@@ -26,30 +26,56 @@ pub enum DownloadStatus {
     Downloaded,
 }
 
+#[allow(dead_code)]
+impl DownloadStatus {
+    fn is_err(&self) -> bool {
+        match self {
+            DownloadStatus::Error(_) => true,
+            _ => false,
+        }
+    }
+
+    fn is_ok(&self) -> bool {
+        match self {
+            DownloadStatus::Downloaded => true,
+            _ => false,
+        }
+    }
+}
+
 /// Downloads a file, saves it to the specified path and sends the download status through a channel.
 /// the `DownloadStatus::Downloading(f32)` is a float between 0 and 1, representing the percentage of the file downloaded.
 /// send `DownloadStatus::Downloaded` when the download is finished.
-pub fn download_file(path: &str, url: &str, tx: mpsc::Sender<DownloadStatus>) -> io::Result<()> {
+pub fn download_file(path: &str, url: &str, tx: mpsc::Sender<DownloadStatus>) -> () {
+    // TODO : remove all unwraps and do correct error handling
+
+    utils::log(&format!("Downloading file: {}", url)).unwrap();
+
     let mut buffer: Vec<u8> = vec![0; 4096];
-    let mut file: File = File::create(path)?;
+    let mut file: File;
 
     let response = match ureq::get(url).call() {
         Ok(response) => response,
         Err(err) => {
+            utils::log(&format!("Error downloading file: {}", err)).unwrap();
             tx.send(DownloadStatus::Error(Box::new(err))).unwrap();
-            return Ok(());
+            return ();
         }
     };
+
+    file = File::create(path).unwrap();
+
     let length = response
         .header("Content-Length")
-        .unwrap()
+        .unwrap_or("0")
         .parse::<f32>()
         .unwrap();
     let mut stream = response.into_reader();
 
     loop {
-        let bytes_read: usize = stream.read(&mut buffer)?;
-        file.write_all(&buffer[..bytes_read])?;
+        let bytes_read: usize = stream.read(&mut buffer).unwrap();
+
+        file.write_all(&buffer[..bytes_read]).unwrap();
         tx.send(DownloadStatus::Downloading(
             file.metadata().unwrap().len() as f32 / length as f32,
         ))
@@ -59,7 +85,7 @@ pub fn download_file(path: &str, url: &str, tx: mpsc::Sender<DownloadStatus>) ->
         }
     }
     tx.send(DownloadStatus::Downloaded).unwrap();
-    Ok(())
+    utils::log(&format!("Download complete, file saved to: {}", path)).unwrap();
 }
 
 //%-----------------------------------------------------------------//
@@ -86,7 +112,10 @@ pub fn create_folder_if_not_exists(path: &str) -> FileStatus {
         let folder = create_dir_all(path);
         match folder {
             Ok(_) => return FileStatus::Ok,
-            Err(e) => return FileStatus::Error(e),
+            Err(e) => {
+                utils::log(&format!("Error creating folder: {}", e)).unwrap();
+                return FileStatus::Error(e);
+            }
         }
     }
     FileStatus::NoChange
@@ -102,11 +131,15 @@ pub fn create_folder_if_not_exists(path: &str) -> FileStatus {
 
 /// Check if a file exists, if not, create it in the path specified.
 pub fn create_file_if_not_exists(path: &str) -> FileStatus {
+    utils::log(&format!("Creating file: {}", path)).unwrap();
     if !Path::new(path).exists() {
         let file = File::create(path);
         match file {
             Ok(_) => return FileStatus::Ok,
-            Err(e) => return FileStatus::Error(e),
+            Err(e) => {
+                utils::log(&format!("Error creating file: {}", e)).unwrap();
+                return FileStatus::Error(e);
+            }
         }
     }
     FileStatus::NoChange
@@ -142,19 +175,27 @@ pub fn append_to_file(path: &str, content: &str) -> Result<(), io::Error> {
 //%-- Takes a zip filename in input and a folder path, extracts the //
 //%-- zip file in the folder path.                                  //
 //%--                                                               //
+//%-- NB:                                                           //
+//%-- Only .tar and tar.gz archives are supported                   //
+//%--                                                               //
 //%-----------------------------------------------------------------//
-/// Unzip a file to a folder
-/// extracts the `filename` in the `folderpath`
-pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Error> {
+/// Unzip a file to a folder,
+/// extracts `filename` in `folderpath`
+pub fn unzip_file(archive_file: &str, target_folder: &str, output_file_path: Option<&str>) -> Result<(), io::Error> {
     utils::log(&format!(
         "Unzipping file: {}, into: {}",
         archive_file, target_folder
     ))
     .unwrap();
 
-    let output_file_path = format!("{}/unzip_output.txt", target_folder);
+    let default_output_filepath = &format!("{}/unzip_output.txt", target_folder);
+    let mut output_file = match output_file_path {
+        Some(path) => File::create(path)?,
+        None => File::create(default_output_filepath)?,
+    };
+
     // check if the archive doesn't ends with .tar
-    if !archive_file.ends_with(".tar") {
+    if !archive_file.ends_with(".tar") && !archive_file.ends_with(".tar.gz") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "Only .tar archives are supported",
@@ -172,12 +213,12 @@ pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Err
     }
 
     let mut cmd = Command::new(""); // Initialize with an empty command
-    let mut output_file = File::create(&output_file_path)?;
     cmd.stdout(output_file.try_clone()?);
     cmd.stderr(output_file.try_clone()?);
     cmd = Command::new("tar");
     cmd.arg("-xf").arg(archive_file);
     cmd.arg("-C").arg(target_folder);
+    
     writeln!(
         output_file,
         "{}",
@@ -207,7 +248,7 @@ pub fn unzip_file(archive_file: &str, target_folder: &str) -> Result<(), io::Err
                     "Failed to unzip the file, error code: {}, output:{}",
                     status.code().unwrap_or(-1),
                     // Read the output file
-                    std::fs::read_to_string(&output_file_path)
+                    std::fs::read_to_string(&output_file_path.unwrap_or(default_output_filepath))
                         .unwrap_or_else(|_| { String::from("Failed to read the output file") })
                 );
                 Err(io::Error::new(io::ErrorKind::Other, message))
@@ -336,7 +377,7 @@ fn launch_executable_jar(filepath: &str, args: Vec<&str>) -> Result<(), Executab
 //%-- End of SP-FN-003                                              //
 //%-----------------------------------------------------------------//
 
-//%-------------------------------------app-------------------------//
+//%-----------------------------------------------------------------//
 //%--                                                               //
 //%-- UNIT TESTS:                                                   //
 //%--                                                               //
@@ -344,6 +385,8 @@ fn launch_executable_jar(filepath: &str, args: Vec<&str>) -> Result<(), Executab
 
 #[cfg(test)]
 mod tests {
+    use std::sync::mpsc::{Receiver, Sender};
+
     use super::*;
     #[allow(unused_imports)]
     use crate::modules::{app, config, files, utils};
@@ -351,8 +394,8 @@ mod tests {
     //%-----------------------------------------------------------------//
     //%--                                                               //
     //%-- TEST: Archive unzipping                                       //
-    //%-- Unzips "archive.zip" in ./tests/assets folders and reads the  //
-    //%-- content of the unzipped file                                  //
+    //%-- Unzips "archive.tar.gz" in ./tests/assets folders and reads   //
+    //%-- the content of the unzipped file                              //
     //%--                                                               //
     //%--     Success conditions:                                       //
     //%-- the program doesn't panic and the extracted file content      //
@@ -365,18 +408,18 @@ mod tests {
     //%-----------------------------------------------------------------//
     #[test]
     fn test_unzip_file() {
-        let filepath = "./tests/assets/archive.tar";
-        let extracted_file = "./tests/assets/unzipped.txt";
-        let target_folder = "./tests/assets";
+        const FILEPATH: &str = "./tests/assets/archive.tar.gz";
+        const EXTRACTED_FILE: &str = "./tests/temp/unzipped.txt";
+        const TARGET_FOLDER: &str = "./tests/temp";
 
         // Remove the extracted file if it exists
-        if Path::new(extracted_file).exists() {
-            let result = std::fs::remove_file(extracted_file);
+        if Path::new(EXTRACTED_FILE).exists() {
+            let result = std::fs::remove_file(EXTRACTED_FILE);
             assert!(result.is_ok(), "Failed to remove the extracted file");
         }
 
         // Unzip the file
-        let result = unzip_file(filepath, target_folder);
+        let result = unzip_file(FILEPATH, TARGET_FOLDER, None);
         assert!(
             &result.is_ok(),
             "Failed to unzip the file: {}",
@@ -385,12 +428,12 @@ mod tests {
 
         // Check if the extracted file exists
         assert!(
-            Path::new(extracted_file).exists(),
+            Path::new(EXTRACTED_FILE).exists(),
             "The extracted file does not exist"
         );
 
         // Read the content of the extracted file
-        let mut file = File::open(extracted_file).unwrap();
+        let mut file = File::open(EXTRACTED_FILE).unwrap();
         let mut content = String::new();
         file.read_to_string(&mut content)
             .expect("Failed to read the extracted file");
@@ -403,10 +446,168 @@ mod tests {
         );
 
         // Clean up the extracted file
-        let result = std::fs::remove_file(extracted_file);
-        assert!(
-            result.is_ok(),
-            "Test passed but failed to remove the extracted file"
+        if !std::env::var("KEEP_FILES").is_ok_and(|x| x.to_lowercase() == "true") {
+            let result = std::fs::remove_file(EXTRACTED_FILE);
+            assert!(
+                result.is_ok(),
+                "Test passed but failed to remove the extracted file"
+            );
+        }
+    }
+    //%-----------------------------------------------------------------//
+    //%--                                                               //
+    //%-- # UNIT TEST: Download file                                    //
+    //%--                                                               //
+    //%-- Test #1: Nominal function:                                    //
+    //%--  The programs starts a localhost webserver and download a file//
+    //%--  then it's content against an expected value,                 //
+    //%--                                                               //
+    //%-- Test #2: 404 Error;                                           //
+    //%--  The programs starts a localhost webserver and download a file//
+    //%--  that doesn't exist, then it checks if the error is handled   //
+    //%--  correctly.                                                   //
+    //%--                                                               //
+    //%-- IMPORTANT: this test requires nodejs on the testing target    //
+    //%--                                                               //
+    //%-- Success conditions:                                           //
+    //%--     - The program doesn't panic                               //
+    //%--     - The downloaded file content matches the expected value. //
+    //%--                                                               //
+    //%-- Failure conditions:                                           //
+    //%-- - The programs panics in any way, including the webserver     //
+    //%-- crashing or not starting correctly,                           //
+    //%--     - The programs doesn't handle the 404 error correctly,    //
+    //%--     - The downloaded file doesn't match the expected value.   //
+    //%--                                                               //
+    //%-----------------------------------------------------------------//
+
+    #[test]
+    fn test_download_file() {
+        const PORT: &str = "2560";
+        const FILEPATH: &str = "./tests/temp/downloaded_file.txt";
+        const EXPECTED_CONTENT: &str =
+            include_str!("../../tests/assets/download_server/files/test.txt");
+        const SERVER_SCRIPT: &str = "./tests/assets/download_server/server.js";
+        // start the local server in js
+        let mut server = match Command::new("node").arg(SERVER_SCRIPT).spawn() {
+            Ok(s) => s,
+            Err(err) => panic!("Failed to start the server: {}", err),
+        };
+
+        // wait for the server to start
+
+        // std::thread::sleep(std::time::Duration::from_millis(500));
+
+        //%-----------------------------------------------------------------//
+        //%--                                                               //
+        //%-- # TEST 1: Nominal function                                    //
+        //%--                                                               //
+        //%-- The program starts a localhost webserver and download a file  //
+        //%-- then matches it's content against an expected value,          //
+        //%-- Passes if the contents are the same, fails otherwise.         //
+        //%--                                                               //
+        //%-----------------------------------------------------------------//
+
+        // create a channel to receive the download status
+        let (tx, rx) = mpsc::channel();
+
+        // start the download in a new thread
+        let download_thread = std::thread::spawn(move || {
+            let url = &format!("http://localhost:{}/download", PORT);
+            let path = FILEPATH;
+            download_file(path, url, tx);
+        });
+
+        // wait for the download to finish
+        loop {
+            match rx.recv() {
+                Ok(DownloadStatus::Downloading(_)) => {}
+                Ok(DownloadStatus::Downloaded) => {
+                    break;
+                }
+                Ok(DownloadStatus::Error(err)) => {
+                    panic!("Error downloading file: {}", err);
+                }
+                Err(_) => {
+                    panic!("Error receiving download status");
+                }
+            }
+        }
+
+        // wait for the download thread to finish
+        download_thread.join().unwrap();
+
+        // check if the downloaded file exists
+        assert!(Path::exists(Path::new(FILEPATH)));
+
+        // read the content of the downloaded file
+        let mut file = File::open(FILEPATH).unwrap();
+
+        let mut content = String::new();
+        file.read_to_string(&mut content)
+            .expect("Failed to read the downloaded file");
+
+        // check the content of the downloaded file
+        let mut read_content = String::new();
+        File::open(FILEPATH)
+            .unwrap()
+            .read_to_string(&mut read_content)
+            .expect("Failed to read the downloaded file");
+
+        assert_eq!(
+            content, EXPECTED_CONTENT,
+            "The content of the downloaded file is incorrect"
         );
+
+        // remove the downloaded file
+        if std::env::var("KEEP_FILES").is_ok_and(|x| x.to_lowercase() != "true") {
+            let result = std::fs::remove_file(FILEPATH);
+            assert!(
+                result.is_ok(),
+                "Test passed but failed to remove the downloaded file"
+            );
+        };
+
+        //%-----------------------------------------------------------------//
+        //%-- END OF TEST 1                                                 //
+        //%-----------------------------------------------------------------//
+        //%--                                                               //
+        //%-- # TEST 2: 404 Error                                           //
+        //%--                                                               //
+        //%-- The program will try to download a file that doesn't exists,  //
+        //%-- and check if the error is handled correctly.                  //
+        //%-- Passes if the error is handled correctly, fails otherwise.    //
+        //%--                                                               //
+        //%-----------------------------------------------------------------//
+        // create a channel to receive the download status
+        let (tx, rx): (Sender<DownloadStatus>, Receiver<DownloadStatus>) = mpsc::channel();
+
+        // start the download in a new thread
+        let download_thread = std::thread::spawn(move || {
+            let url = &format!("http://localhost:{}/404", PORT);
+            let path = FILEPATH;
+            download_file(path, url, tx);
+        });
+
+        // wait for the download to finish
+        assert!(
+            rx.recv().unwrap().is_err(),
+            "The download should have failed"
+        );
+
+        // wait for the download thread to finish
+        download_thread.join().unwrap();
+
+        //%-----------------------------------------------------------------//
+        //%--                                                               //
+        //%-- END OF TEST 2                                                 //
+        //%--                                                               //
+        //%-----------------------------------------------------------------//
+
+        // stop the server
+        match server.kill() {
+            Ok(_) => {}
+            Err(e) => panic!("Failed to stop the server: {}", e),
+        }
     }
 }

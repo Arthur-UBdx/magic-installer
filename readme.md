@@ -17,9 +17,9 @@ The config.txt file is a simple text file that contains the following:
 #
 #
 # the url to download the mods, config, etc...
-modpack_url=https://www.dropbox.com/sh/idok2pnzrxvackh/AAAh4HgNQk_RH16xHDX6nBa8a?dl=1
+modpack_url=
 # the url to download the modloader installer (fabic, neoforge, etc...)
-modloader_url=https://www.dropbox.com/sh/zibj4mm03dqjqaq/AAAqrab7I3iKG_C61iBQHp3Ka?dl=1
+modloader_url=
 #
 # the name of the executable of the modloader installer (.jar OR .exe)
 modloader_execname=fabric-installer.jar
@@ -37,6 +37,12 @@ On Linux, the default minecraft folder is located in `~/.minecraft`
 
 You can specify a different folder by setting the `MINECRAFT_DIR` environment variable to the path of the folder you want to use.
 You can use environnement variables, for example: `$home/my_folder/.minecraft` is valid.
+
+## Running tests
+
+The unit tests are located in each corresponding module, they are run with `cargo test`,
+for running certains test, like `test_download` in `files.rs` module, you need to have `nodejs` installed.
+You can set `KEEP_FILES` to `true` to prevent the cleaning of processeded files by the tests.
 
 ## changelog
 

@@ -1,0 +1,2 @@
+tar -xf ./tests/assets/archive.tar.gz -C ./tests/temp
+Current folder: "/mnt/d/Programmation/rust/projects/magic-installer"

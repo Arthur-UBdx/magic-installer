@@ -40,22 +40,38 @@ const MAIN_TITLE: &str = include_str!("../../assets/title.txt");
 #[cfg(target_os = "linux")]
 const MAIN_TITLE: &str = include_str!("../../assets/title.txt");
 
+trait ExceptErrorPage<T> {
+    fn expect_error_page(self, display: &Display, error_message: &str) -> T;
+}
+
+impl<T, E: std::fmt::Display> ExceptErrorPage<T> for Result<T, E> {
+    fn expect_error_page(self, display: &Display, error_message: &str) -> T {
+        match self {
+            Ok(value) => value,
+            Err(e) => {
+                display.error_page(&format!("{}: {}", error_message, e), true);
+                unreachable!("Error: {}", e);
+            }
+        }
+    }
+}
+
 pub enum AppStatus {
     Loop,
     Exit,
 }
 
-pub struct Display<'a> {
+pub struct Display {
     terminal_width: u16,
     terminal_height: u16,
-    config: &'a config::Config,
+    config: config::Config,
 }
 
-impl<'a> Display<'a> {
+impl Display {
     /// Creates a new Display instance and enters the alternate screen mode.
     /// This function should be called at the beginning of the application.
     /// It initializes the terminal size and sets up the display.
-    pub fn open(config: &'a config::Config) -> crossterm::Result<Display<'a>> {
+    pub fn open(config: config::Config) -> crossterm::Result<Display> {
         Display::setup_panic_hook();
 
         #[cfg(target_os = "linux")]
@@ -97,15 +113,22 @@ impl<'a> Display<'a> {
     }
 
     /// Writes a string to the terminal, centered based on the current terminal width.
+    /// this function handles newlines and prints each line centered.
     fn write_centered(&self, text: &str) -> crossterm::Result<()> {
-        let padding: usize = (self.terminal_width.saturating_sub(text.len() as u16) / 2) as usize;
-        execute!(io::stdout(), Print(" ".repeat(padding)), Print(text))?;
+        let string_ln_separated = text.lines().collect::<Vec<&str>>();
+
+        let mut stdout = io::stdout();
+        for line in string_ln_separated {
+            let padding: usize =
+                (self.terminal_width.saturating_sub(line.len() as u16) / 2) as usize;
+            execute!(stdout, Print(" ".repeat(padding)), Print(line), Print("\n"))?;
+        }
         Ok(())
     }
 
     /// Writes a styled string to the terminal, centered based on the current terminal width.
-    /// The string is styled using the `StyledContent` type from crossterm.
     /// This function is useful for displaying text with colors and attributes.
+    /// This function does not handle newlines, so it should be used with single-line strings.
     fn write_stylized_centered(&self, stylized_text: StyledContent<&str>) -> crossterm::Result<()> {
         let padding: usize = (self
             .terminal_width
@@ -134,17 +157,30 @@ impl<'a> Display<'a> {
         let mut selected = 0;
         let key_pressed: KeyCode;
 
+        // check if config file is valid
+        while self.config.is_valid() == false {
+            self.error_page("La configuration est invalide, un éditeur va s'ouvrir pour permettre une modification", false);
+            self.config = self
+                .modify_configfile(&format!(
+                    "{}config.txt",
+                    &self.config.magic_installer_folder
+                ))
+                .log_expect("Error when opening config file");
+        }
+
         // Main drawing
         self.draw_main_menu(selected, options)?;
-
+        self.clear_key_buffer()?;
         // Event loop
+        // stay in the loop until esc or enter is pressed
         loop {
-            #[cfg(target_os = "windows")] {
+            #[cfg(target_os = "windows")]
+            {
                 if event::poll(Duration::from_millis(100))? {
                     if let Event::Key(KeyEvent { code, .. }) = event::read().unwrap() {
                         match code {
                             KeyCode::Up => {
-                                selected = (selected - 1) % options_len;
+                                selected = (selected + options_len - 1) % options_len;
                                 self.draw_main_options(selected, options)?;
                             }
                             KeyCode::Down => {
@@ -170,8 +206,9 @@ impl<'a> Display<'a> {
                 }
                 execute!(io::stdout(), cursor::Hide)?;
             }
-            #[cfg(target_os = "linux")] {
-                if event::poll(Duration::from_millis(3000))? {
+            #[cfg(target_os = "linux")]
+            {
+                if event::poll(Duration::from_millis(100))? {
                     match event::read().unwrap() {
                         Event::Key(KeyEvent { code, .. }) => match code {
                             KeyCode::Up => {
@@ -204,19 +241,16 @@ impl<'a> Display<'a> {
             }
         }
 
-        // Handle key pressed
-        // key_pressed = event::read().unwrap();
-        // key_pressed = KeyCode::Enter;
-        // key_pressed = KeyCode::Esc;
-        // key_pressed = KeyCode::Up;
-        // key_pressed = KeyCode::Down;
+        // when esc or enter is pressed, we break the loop
+        // and we check which key was pressed
         match key_pressed {
             KeyCode::Esc => return Ok(AppStatus::Exit),
-            _ => {
+            KeyCode::Enter => {
+                // enter pressed
                 match selected {
                     0 => {
                         // install the modpack
-                        let filename: &str = "modpack.zip";
+                        let filename: &str = "modpack.tar.gz";
                         let filepath: String =
                             format!("{}{}", &self.config.minecraft_folder, filename);
                         let folders: &[&str] = &self
@@ -231,13 +265,13 @@ impl<'a> Display<'a> {
 
                         self.remove_files_page(&self.config.minecraft_folder, folders)?;
                         self.download_page(&filepath, &self.config.modpack_url)
-                            .log_expect("Error when launching Download page");
-                        self.unzip_page(filename, &self.config.minecraft_folder)
-                            .log_expect("Error when launching Unzip page");
+                            .expect_error_page(self, "Error when launching Download page");
+                        self.unzip_page(&filepath, &self.config.minecraft_folder)
+                            .expect_error_page(self, "Error when launching Unzip page");
                     }
                     1 => {
                         // install the modloader (fabric/forge)
-                        let filename: &str = "modloader.zip";
+                        let filename: &str = "modloader.tar.gz";
                         let filepath: String =
                             format!("{}{}", &self.config.magic_installer_folder, filename);
                         let executable_path: String = format!(
@@ -248,17 +282,17 @@ impl<'a> Display<'a> {
                         utils::log(&format!("modloader zip path: {}", &filepath)).unwrap();
                         utils::log(&format!("modloader exec path: {}", &executable_path)).unwrap();
                         utils::log(&format!(
-                                "magic_installer folder path: {}",
-                                &self.config.magic_installer_folder
+                            "magic_installer folder path: {}",
+                            &self.config.magic_installer_folder
                         ))
                         .unwrap();
 
                         self.download_page(&filepath, &self.config.modloader_url)
-                            .log_expect("Error when launching Download page");
-                        self.unzip_page(filename, &self.config.magic_installer_folder)
-                            .log_expect("Error when launching Unzip page");
+                            .expect_error_page(self, "Error when launching Download page");
+                        self.unzip_page(&filepath, &self.config.magic_installer_folder)
+                            .expect_error_page(self, "Error when launching Unzip page");
                         self.executable_page(&executable_path)
-                            .log_expect("Error when launching Executable page");
+                            .expect_error_page(self, "Error when launching Executable page");
                     }
                     2 => {
                         // remove all files
@@ -271,52 +305,21 @@ impl<'a> Display<'a> {
                         self.remove_files_page(&self.config.minecraft_folder, folders)?;
                     } // open config file
                     3 => {
-                        let config_path: String =
-                            format!("{}magic_installer/config.txt", self.config.minecraft_folder);
-                        utils::log(&format!("Opening config file path: {}", &config_path)).unwrap();
+                        self.config = self
+                            .modify_configfile(&format!(
+                                "{}config.txt",
+                                &self.config.magic_installer_folder
+                            ))
+                            .expect_error_page(self, "Error when opening config file");
 
-                        // Open the config file in the default text editor depending on the OS
-                        #[cfg(target_os = "windows")]
-                        {
-                            std::process::Command::new("notepad")
-                                .arg(&config_path)
-                                .spawn()
-                                .log_expect(&format!(
-                                    "Failed to open config file {}",
-                                    &config_path
-                                ));
-                        }
-                        #[cfg(target_os = "linux")]
-                        {
-                            // deactivate the raw mode to open the file
-                            terminal::disable_raw_mode()?;
-                            execute!(io::stdout(), event::DisableMouseCapture, cursor::Show)?;
-                            // run vim as a child process and wait for it to be closed
-                            // this is a blocking call
-                            std::process::Command::new("vim")
-                                .arg(&config_path)
-                                .spawn()
-                                .log_expect(&format!("Failed to open config file {}", &config_path))
-                                .wait()
-                                .log_expect("Failed to wait for vim to finish");
+                        // write the ok message
+                        // execute!(
+                        //     io::stdout(),
+                        //     terminal::Clear(terminal::ClearType::All),
+                        //     cursor::MoveTo(0, self.terminal_height / 2 - 1)
+                        // )?;
+                        // self.write_centered("Les changements ont été pris en compte\nAppuyez sur n'importe quelle touche pour continuer")?;
 
-                            // reenable the raw mode for the rest of the program
-                            terminal::enable_raw_mode()?;
-                            execute!(
-                                io::stdout(),
-                                event::EnableMouseCapture,
-                                terminal::Clear(terminal::ClearType::All),
-                                cursor::Hide
-                            )?;
-
-                            execute!(
-                                io::stdout(),
-                                cursor::MoveTo(0, self.terminal_height / 2 - 1)
-                            )?;
-                            self.write_centered(
-                                "Appuyez sur n'importe quelle touche pour continuer",
-                            )?;
-                        }
                         #[cfg(not(any(target_os = "windows", target_os = "linux")))]
                         {
                             panic!("Unsupported OS");
@@ -331,7 +334,11 @@ impl<'a> Display<'a> {
                     }
                     _ => {}
                 }
+                // clear the key buffer after going into a menu
             }
+            _ => {
+                unreachable!()
+            } // this should never happen, other keys are handled above
         };
         Ok(AppStatus::Loop)
     }
@@ -428,7 +435,7 @@ impl<'a> Display<'a> {
             cursor::MoveTo(0, height - 2)
         )?;
 
-        self.write_centered("Téléchargement en cours...")?; //lang
+        self.write_centered(&format!("Téléchargement en cours...\n{}", url))?; //lang
         execute!(stdout, cursor::MoveTo(0, height))?;
         self.write_centered("Préparation du téléchargement")?; //lang
 
@@ -438,7 +445,7 @@ impl<'a> Display<'a> {
         let (tx, rx) = mpsc::channel();
 
         let handle = thread::spawn(move || {
-            download_file(&path, &url, tx).expect("Couldn't download file");
+            download_file(&path, &url, tx);
         });
 
         loop {
@@ -455,18 +462,7 @@ impl<'a> Display<'a> {
                     break;
                 }
                 Ok(DownloadStatus::Error(error)) => {
-                    execute!(stdout, cursor::MoveTo(0, height))?;
-                    self.write_stylized_centered(
-                        format!("Erreur: {}", error)
-                            .as_str()
-                            .with(Color::Red)
-                            .attribute(Attribute::Bold),
-                    )
-                    .unwrap();
-                    sleep(Duration::from_secs(2));
-                    execute!(stdout, terminal::Clear(terminal::ClearType::All))?;
-                    execute!(stdout, cursor::MoveTo(0, height))?;
-                    return Err(io::Error::new(io::ErrorKind::Other, "Download Error"));
+                    return Err(io::Error::new(io::ErrorKind::Other, format!("{}", error)));
                 }
                 Err(_) => {}
             }
@@ -512,7 +508,7 @@ impl<'a> Display<'a> {
         )?;
 
         self.write_centered("Installation en cours...")?; //lang
-        unzip_file(filename, folderpath)?;
+        unzip_file(filename, folderpath, Some(&format!("{}/unzip_output.txt", self.config.magic_installer_folder)))?;
 
         execute!(
             stdout,
@@ -535,7 +531,8 @@ impl<'a> Display<'a> {
         )?;
 
         self.write_centered("Lancement de l'installateur du Modloader")?; //lang
-        launch_executable(filepath).log_expect("Error when launching modloader executable");
+        launch_executable(filepath)
+            .expect_error_page(self, "Error when launching modloader executable");
 
         execute!(
             stdout,
@@ -596,6 +593,155 @@ impl<'a> Display<'a> {
 
         self.write_centered("Suppression terminée")?; //lang
         sleep(Duration::from_secs(1));
+        Ok(())
+    }
+
+    fn modify_configfile(&self, config_path: &str) -> Result<config::Config, io::Error> {
+        utils::log(&format!("Opening config file path: {}", config_path)).unwrap();
+
+        //%-----------------------------------------------------------------//
+        //%--                                                               //
+        //%-- ## SP-PT-001                                                  //
+        //%--                                                               //
+        //%-- L'utilitaire doit être capable de fonctionner sur un système  //
+        //%-- d'exploitation Windows                                        //
+        //%-- et Linux.                                                     //
+        //%--                                                               //
+        //%-----------------------------------------------------------------//
+        // Open the config file in the default text editor depending on the OS
+        #[cfg(target_os = "windows")]
+        {
+            let mut notepad_app = std::process::Command::new("notepad")
+                .arg(&config_path)
+                .spawn()
+                .expect_error_page(
+                    self,
+                    &format!(
+                        "Erreur lors de la lecture du fichier de configuration par notepad {}",
+                        &config_path
+                    ),
+                );
+
+            // write the waiting message
+            execute!(
+                io::stdout(),
+                terminal::Clear(terminal::ClearType::All),
+                cursor::MoveTo(0, self.terminal_height / 2 - 1)
+            )?;
+            self.write_centered(
+                "En attente de la fermeture de Notepad pour\nprendre en compte les modifications",
+            )?;
+
+            notepad_app
+                .wait()
+                .expect_error_page(self, "Failed to wait for notepad to finish");
+            execute!(io::stdout(), terminal::Clear(terminal::ClearType::All))?;
+            // re parse config file
+            let config_string: String = match files::read_file(&config_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    self.error_page(
+                        &format!(
+                            "Erreur lors de la lecture du fichier de configuration: {}",
+                            e
+                        ),
+                        true,
+                    );
+                    unreachable!();
+                }
+            };
+            return Ok(config::Config::from(&utils::remove_comments(config_string)));
+        };
+
+        #[cfg(target_os = "linux")]
+        {
+            // deactivate the raw mode to open the file
+            terminal::disable_raw_mode()?;
+            execute!(
+                io::stdout(),
+                event::DisableMouseCapture,
+                terminal::Clear(terminal::ClearType::All),
+                cursor::Show
+            )?;
+            // run vim as a child process and wait for it to be closed
+            // this is a blocking call
+            std::process::Command::new("vim")
+                .arg(&config_path)
+                .spawn()
+                .expect_error_page(
+                    self,
+                    &format!(
+                        "Erreur lors de la lecture du fichier de configuration par vim {}",
+                        &config_path
+                    ),
+                )
+                .wait()
+                .expect_error_page(self, "Failed to wait for vim to finish");
+
+            // reenable the raw mode for the rest of the program
+            terminal::enable_raw_mode()?;
+            execute!(
+                io::stdout(),
+                event::EnableMouseCapture,
+                terminal::Clear(terminal::ClearType::All),
+                cursor::Hide
+            )?;
+
+            // re parse config file
+            let config_string: String = match files::read_file(&config_path) {
+                Ok(s) => s,
+                Err(e) => {
+                    self.error_page(
+                        &format!(
+                            "Erreur lors de la lecture du fichier de configuration: {}",
+                            e
+                        ),
+                        true,
+                    );
+                    unreachable!();
+                }
+            };
+            return Ok(config::Config::from(&utils::remove_comments(config_string)));
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+        {
+            panic!("Unsupported OS");
+        }
+    }
+
+    fn error_page(&self, error: &str, fatal: bool) -> () {
+        
+        let height = self.terminal_height / 2u16;
+        let mut stdout = io::stdout();
+        execute!(
+            stdout,
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, height - 2)
+        ).log_expect("Error when clearing the screen");
+    
+        self.write_centered(&format!("Une erreur est survenue:\n{}\n\nAppuyez sur une touche pour continuer", error))
+        .log_expect("Erreur lors de l'écriture du message d'erreur"); //lang
+
+        //clear the buffer before waiting for user input
+        self.clear_key_buffer()
+            .log_expect("Error when clearing the key buffer");
+        
+        event::read()
+            .log_expect("Error when waiting for user input");
+        
+        if fatal {
+            utils::panic_log(&format!("Fatal error: {}", error));
+        }
+    }
+
+    /// Clears the key buffer to avoid any unwanted key presses
+    /// This function is useful to clear the key buffer before waiting for user input.
+    /// It ensures that no key presses are left in the buffer.
+    fn clear_key_buffer(&self) -> crossterm::Result<()> {
+        // Clear the key buffer
+        while event::poll(Duration::from_secs(0))? {
+            if let Event::Key(_) = event::read()? {}
+        }
         Ok(())
     }
 }
